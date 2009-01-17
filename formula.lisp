@@ -189,5 +189,6 @@
                 expr
                 (error "Tokens beyond the end of expression: ~A" tail)))))
 
-(defun enable-expr-quotes ()
-    (set-dispatch-macro-character #\# #\{ #'expr-reader))
+(defmacro enable-expr-quotes ()
+    (eval-when (:compile-toplevel :execute)
+        (set-dispatch-macro-character #\# #\{ #'expr-reader)))

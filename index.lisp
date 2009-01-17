@@ -31,22 +31,31 @@
                       item))
         order))
 
+(defun set-prop-nochange (sym tag value)
+    (let ((old-value (get sym tag)))
+        (if (or (null old-value) (equal old-value value))
+            (setf (get sym tag) value)
+            (error "Cannot redefine ~A for ~A to: ~A~% - already set to: ~A"
+                tag sym value old-value))))
+
 (defmacro def-multivalue (name indexes
                              &key (layout (mapcar #'car indexes)))
+    (when (/= (length indexes) (length layout))
+        (error "Cannot layout ~A as ~A" indexes layout))
     (let* ((index-reordered (reorder indexes layout #'car))
            (index-dims (mapcan #'index-dimension index-reordered))
            (decl-dims (mapcar #'(lambda (x) '*) index-dims)))
-        (when (/= (length indexes) (length layout))
-            (error "Cannot layout ~A as ~A" indexes layout))
-        (setf (get name 'mv-indexes) indexes)
-        (setf (get name 'mv-layout) layout)
-        `(progn
-             (defparameter ,name nil)
+        `(eval-when (:compile-toplevel :load-toplevel :execute)
+             (defvar ,name nil)
+             (declaim (type (array simple-float ,decl-dims) ,name))
+             (set-prop-nochange ',name 'mv-indexes ',indexes)
+             (set-prop-nochange ',name 'mv-layout ',layout)
+             (set-prop-nochange ',name 'mv-dimensions ',index-dims)
              (defun ,(allocator-symbol name) ()
                  (make-array ,index-dims
                      :element-type 'simple-float
                      :initial-element 0.0))
-             (declaim (type (array simple-float ,decl-dims) ,name)))))
+             )))
 
 (defmacro alloc-multivalues (&rest names)
     (let ((commands (mapcar
