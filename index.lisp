@@ -8,8 +8,8 @@
         (apply #'concatenate 'string
             (mapcar #'unsymbol items))))
 
-(defmacro ranging (expr min max delta &rest tail)
-    (declare (ignore min max delta tail))
+(defmacro ranging (expr min max delta &optional ordered-p loop-level &rest tail)
+    (declare (ignore min max delta ordered-p loop-level tail))
     expr)
 
 (defun compute-range-1 (expr &optional (old-expr expr))
@@ -181,7 +181,7 @@
 (defun index-dimension (item)
     (destructuring-bind (iname minv maxv &key (by 1) (bands 1)) item
         (let ((fullrange `(/ (- ,maxv ,minv) ,by)))
-            (simplify-rec #'simplify-index-1
+            (simplify-index
                 (if (> bands 1)
                     (list bands `(1+ (/ ,fullrange ,bands)))
                     (list `(1+ ,fullrange)))))))
@@ -189,7 +189,7 @@
 (defun index-refexpr (item)
     (destructuring-bind (iname minv maxv &key (by 1) (bands 1)) (car item)
         (let ((value `(/ (- ,(cdr item) ,minv) ,by)))
-            (simplify-rec #'simplify-index-1
+            (simplify-index
                 (if (> bands 1)
                     (list `(mod ,value ,bands) `(floor ,value ,bands))
                     (list value))))))
@@ -258,6 +258,105 @@
                         name idxvals indexes))
                 `(aref ,name ,@idxlst)))))
 
+(defun index-iterexpr (item var &key step (skip '(0 0))
+                          (skip-low (car skip)) (skip-high (cadr skip)) layer)
+    (unless (symbolp var)
+        (error "Expecting a symbol for a index variable, found: ~A" var))
+    (destructuring-bind (iname minv maxv &key (by 1) (bands 1)) item
+        (if (> bands 1)
+            ;; Multiple bands
+            (let* ((dimension (cadr (index-dimension item)))
+                   (num-step  (or step 1))
+                   (one-step  (if (> num-step 0) 1 -1))
+                   (band-step (if (>= (abs num-step) bands) bands num-step))
+                   (line-step (if (>= (abs num-step) bands) (/ num-step bands) one-step))
+                   (band-min  (if (< skip-low (abs band-step)) skip-low 0))
+                   (band-max  (if (< skip-high (abs band-step)) skip-high 0))
+                   (line-min  (if (>= skip-low bands) (/ skip-low bands) 0))
+                   (line-max  (if (>= skip-high bands) (/ skip-high bands) 0))
+                   (var-range `(ranging ,var
+                                   ,line-min (- (- ,dimension ,line-max) 1)
+                                   ,line-step ,step ,layer)))
+                (unless (and (integerp band-step) (integerp line-step)
+                             (= (mod bands band-step) 0))
+                    (error "~A: step ~A does not match band count ~A"
+                        iname num-step bands))
+                (unless (and (integerp line-min)
+                            (= (+ (* bands line-min) band-min) skip-low))
+                    (error "~A: cannot skip-low ~A with ~A bands and step ~A"
+                        iname skip-low bands num-step))
+                (unless (and (integerp line-max)
+                            (= (+ (* bands line-max) band-max) skip-high))
+                    (error "~A: cannot skip-high ~A with ~A bands and step ~A"
+                        iname skip-high bands num-step))
+                (when (>= (+ band-min band-max) (abs band-step))
+                    (error "~A: cannot skip (~A + ~A) with ~A bands and step ~A"
+                        iname skip-low skip-high bands num-step))
+                (if (= bands (abs band-step))
+                    (let* ((band-value (if (> one-step 0) band-min
+                                           (- (- bands band-max) 1)))
+                           (expr `(+ (* (+ (* ,var-range ,bands) ,band-value) ,by) ,minv)))
+                        (list var expr var-range))
+                    (let* ((band-var    (gensym (symbol-name var)))
+                           (band-range `(ranging ,band-var
+                                            ,band-min ,(- (- bands band-max) 1)
+                                            ,band-step ,band-step ,layer))
+                           (expr `(+ (* (+ (* ,var-range ,bands) ,band-range) ,by) ,minv)))
+                        (list var expr band-range var-range))))
+            ;; Single band
+            (let* ((dimension (car (index-dimension item)))
+                   (num-step  (or step 1))
+                   (var-range `(ranging ,var
+                                   ,skip-low (- (- ,dimension ,skip-high) 1)
+                                   ,num-step ,step ,layer))
+                   (expr `(+ (* ,var-range ,by) ,minv)))
+                (list var expr var-range)))))
+
+(defun apply-index-iterexpr (name indexes item)
+    (let* ((wrap  (if (atom item) (list item item) item))
+           (wrap2 (if (keywordp (cadr wrap))
+                      (cons (car wrap) wrap)
+                      wrap))
+           (idxobj (find (car wrap2) indexes :key #'car)))
+        (unless idxobj
+            (error "Unknown index '~A' for multivalue ~A: ~A" (car wrap2) name item))
+        (apply #'index-iterexpr idxobj (cdr wrap2))))
+
+(defun replace-unquoted (expr src dest)
+    (cond
+        ((eql expr src) dest)
+        ((atom expr) expr)
+        ((eql (car expr) 'quote) expr)
+        (t (cons
+               (replace-unquoted (car expr) src dest)
+               (replace-unquoted (cdr expr) src dest)))))
+
+(defmacro loop-indexes (name idxlist &body code)
+    (let ((indexes      (get name 'mv-indexes)))
+        (unless indexes
+            (error "Unknown multivalue ~A" name))
+        (let* ((new-code code)
+               (loops (mapcan
+                          #'(lambda (item)
+                                (let* ((ie (apply-index-iterexpr name indexes item)))
+                                    (setf new-code
+                                        (replace-unquoted new-code (car ie) (cadr ie)))
+                                    (cddr ie)))
+                          idxlist)))
+            (do ((loop-lst (nreverse loops) (cdr loop-lst))
+                 (cur-code new-code))
+                ((null loop-lst) (car cur-code))
+                (destructuring-bind
+                    (rg var minv maxv stepv &rest x) (simplify-index (car loop-lst))
+                    (setf cur-code
+                        (if (> stepv 0)
+                            `((do ((,var ,minv (+ ,var ,stepv)))
+                                 ((> ,var ,maxv) nil)
+                                 ,@cur-code))
+                            `((do ((,var ,maxv (- ,var ,(- stepv))))
+                                 ((< ,var ,minv) nil)
+                                 ,@cur-code)))))))))
+
 (defparameter M1 0)
 (defparameter N5 0)
 
@@ -270,3 +369,4 @@
 (pprint (macroexpand-1 '(iref HFIFi 100 200)))
 (pprint (macroexpand-1 '(setf (iref HFIFi 100 200) 5)))
 
+(pprint (macroexpand-1 '(loop-indexes HFIFi ((i :step -1 :skip (2 2)) k) (setf (iref HFIFi i k) 5))))
