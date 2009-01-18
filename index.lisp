@@ -258,10 +258,10 @@
                         name idxvals indexes))
                 `(aref ,name ,@idxlst)))))
 
-(defun index-iterexpr (item var &key step (skip '(0 0))
+(defun index-iterexpr (item iname &key (as iname) (var as) step (skip '(0 0))
                           (skip-low (car skip)) (skip-high (cadr skip)) layer)
     (unless (symbolp var)
-        (error "Expecting a symbol for a index variable, found: ~A" var))
+        (error "Expecting a symbol for dimension '~A', found: ~A" iname var))
     (destructuring-bind (iname minv maxv &key (by 1) (bands 1)) item
         (if (> bands 1)
             ;; Multiple bands
@@ -313,14 +313,14 @@
                 (list var expr var-range)))))
 
 (defun apply-index-iterexpr (name indexes item)
-    (let* ((wrap  (if (atom item) (list item item) item))
-           (wrap2 (if (keywordp (cadr wrap))
-                      (cons (car wrap) wrap)
-                      wrap))
+    (let* ((wrap  (if (atom item) (list item) item))
+           (wrap2 (if (or (null (cdr wrap)) (keywordp (cadr wrap)))
+                      wrap
+                      (list* (car wrap) ':as (cdr wrap))))
            (idxobj (find (car wrap2) indexes :key #'car)))
         (unless idxobj
             (error "Unknown index '~A' for multivalue ~A: ~A" (car wrap2) name item))
-        (apply #'index-iterexpr idxobj (cdr wrap2))))
+        (apply #'index-iterexpr idxobj wrap2)))
 
 (defun replace-unquoted (expr src dest)
     (cond
@@ -369,4 +369,4 @@
 (pprint (macroexpand-1 '(iref HFIFi 100 200)))
 (pprint (macroexpand-1 '(setf (iref HFIFi 100 200) 5)))
 
-(pprint (macroexpand-1 '(loop-indexes HFIFi ((i :step -1 :skip (2 2)) k) (setf (iref HFIFi i k) 5))))
+(pprint (macroexpand-1 '(loop-indexes HFIFi ((i :as z :step -1 :skip (2 2)) k) (setf (iref HFIFi z k) 5))))
