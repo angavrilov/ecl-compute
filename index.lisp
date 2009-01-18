@@ -15,33 +15,21 @@
 (defun compute-range-1 (expr &optional (old-expr expr))
     (match expr
         (`(- (ranging ,arg ,min ,max ,delta ,@rest))
-            `(ranging (- ,arg)
-                 ,(simplify-index `(- ,max))
-                 ,(simplify-index `(- ,min))
-                 ,(simplify-index `(- ,delta))
-                 ,@rest))
+            `(ranging (- ,arg) (- ,max) (- ,min) (- ,delta) ,@rest))
         (`(,(as op (or '+ '-))
               (ranging ,arg ,min ,max ,@rest) ,@pv)
             `(ranging (,op ,arg ,@pv)
-                 ,(simplify-index `(,op ,min ,@pv))
-                 ,(simplify-index `(,op ,max ,@pv))
-                 ,@rest))
+                 (,op ,min ,@pv) (,op ,max ,@pv) ,@rest))
         ((when (and (numberp mv) (>= mv 0))
             `(,(as op (or '* '/))
                  (ranging ,arg ,min ,max ,delta ,@rest) ,mv))
             `(ranging (,op ,arg ,mv)
-                 ,(simplify-index `(,op ,min ,mv))
-                 ,(simplify-index `(,op ,max ,mv))
-                 ,(simplify-index `(,op ,delta ,mv))
-                 ,@rest))
+                 (,op ,min ,mv) (,op ,max ,mv) (,op ,delta ,mv) ,@rest))
         ((when (and (numberp mv) (< mv 0))
             `(,(as op (or '* '/))
                  (ranging ,arg ,min ,max ,delta ,@rest) ,mv))
             `(ranging (,op ,arg ,mv)
-                 ,(simplify-index `(,op ,max ,mv))
-                 ,(simplify-index `(,op ,min ,mv))
-                 ,(simplify-index `(,op ,delta ,mv))
-                 ,@rest))
+                 (,op ,max ,mv) (,op ,min ,mv) (,op ,delta ,mv) ,@rest))
         (_ nil)))
 
 (defun simplify-index-1 (expr &optional (old-expr expr))
@@ -154,16 +142,17 @@
         ;; Nothing to do
         (_ nil)))
 
-(defun simplify-rec (engine expr)
-    (if (atom expr)
+(defun simplify-rec (engine expr cache)
+    (if (or (atom expr) (gethash expr cache))
         expr
         (let* ((rec-res (mapcar
-                            #'(lambda (sub) (simplify-rec engine sub))
+                            #'(lambda (sub) (simplify-rec engine sub cache))
                             expr))
                (subs-res (funcall engine rec-res expr)))
+            (setf (gethash rec-res cache) t)
             (if (null subs-res)
                 rec-res
-                (simplify-rec engine subs-res)))))
+                (simplify-rec engine subs-res cache)))))
 
 (defun simplify-rec-once (engine expr)
     (if (atom expr)
@@ -174,8 +163,19 @@
                (subs-res (funcall engine rec-res expr)))
             (if (null subs-res) rec-res subs-res))))
 
-(defun simplify-index (expr) (simplify-rec #'simplify-index-1 expr))
-(defun compute-range (expr) (simplify-rec-once #'compute-range-1 expr))
+(defparameter *simplify-cache* (make-hash-table))
+
+(defun simplify-index (expr)
+    (simplify-rec #'simplify-index-1 expr *simplify-cache*))
+
+(defparameter *range-cache* (make-hash-table))
+
+(defun compute-range (expr)
+    (let ((cached (gethash expr *range-cache*)))
+        (if cached cached
+            (setf (gethash expr *range-cache*)
+                (simplify-index
+                    (simplify-rec-once #'compute-range-1 expr))))))
 
 (defun compare-indexes (expr1 expr2 &optional (delta 0))
     (match (cons expr1 expr2)
@@ -321,8 +321,13 @@
                         name idxvals indexes))
                 (values `(aref ,name ,@idxlst) t dimchk)))))
 
-(defmacro iref (name &rest idxvals)
-    (expand-iref name idxvals))
+(defparameter *iref-cache* (make-hash-table))
+
+(defmacro iref (&whole form name &rest idxvals)
+    (let ((cached (gethash form *iref-cache*)))
+        (if cached cached
+            (setf (gethash form *iref-cache*)
+                (expand-iref name idxvals)))))
 
 (defun index-iterexpr (item iname &key (as iname) (var as) step (skip '(0 0))
                           (skip-low (car skip)) (skip-high (cadr skip)) layer)
