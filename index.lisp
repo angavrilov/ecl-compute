@@ -132,13 +132,15 @@
                    (and range (= (floor (car range) divv)
                                  (floor (cdr range) divv))))
              `(floor ,modv ,(type integer divv)))
-            0)
+            (let ((range (compute-num-range modv)))
+                (floor (car range) divv)))
         ;; Kill ceiling if the value is in an aligned range
         ((when (let ((range (compute-num-range modv)))
                    (and range (= (ceiling (car range) divv)
                                  (ceiling (cdr range) divv))))
              `(ceiling ,modv ,(type integer divv)))
-            0)
+            (let ((range (compute-num-range modv)))
+                (ceiling (car range) divv)))
         ;; Nothing to do
         (_ nil)))
 
