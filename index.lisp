@@ -125,6 +125,13 @@
                   ,(type integer divv)))
             `(+ (,cmd (* ,marg ,mulv) ,divv)
                 (,cmd (,op ,remv) ,divv)))
+        ;; Likewise for aligned constants
+        ((when (= (mod remv divv) 0)
+             `(,(as cmd (or 'mod 'floor 'ceiling)) ; no truncate & rem !
+                  (,(as op (or '+ '-)) ,exv ,remv)
+                  ,(type integer divv)))
+            `(+ (,cmd ,exv ,divv)
+                (,cmd (,op ,remv) ,divv)))
         ;; Strip mod if the value is in an aligned range
         ((when (let ((range (compute-num-range modv)))
                    (and range (= (floor (car range) divv)
@@ -169,6 +176,28 @@
 
 (defun simplify-index (expr) (simplify-rec #'simplify-index-1 expr))
 (defun compute-range (expr) (simplify-rec-once #'compute-range-1 expr))
+
+(defun compare-indexes (expr1 expr2 &optional (delta 0))
+    (match (cons expr1 expr2)
+        (`((+ ,le ,(type number lv)) . ,_)
+            (compare-indexes le expr2 (+ delta lv)))
+        (`((- ,le ,(type number lv)) . ,_)
+            (compare-indexes le expr2 (- delta lv)))
+        (`(,_ . (+ ,re ,(type number rv)))
+            (compare-indexes expr1 re (- delta rv)))
+        (`(,_ . (- ,re ,(type number rv)))
+            (compare-indexes expr1 re (+ delta rv)))
+        (`((* ,le ,(type number lv)) . (* ,re ,lv))
+            (compare-indexes le re (/ delta lv)))
+        (`((/ ,le ,(type number lv)) . (/ ,re ,lv))
+            (compare-indexes le re (* delta lv)))
+        ((when (equal expr1 expr2))
+            (cond ((< delta 0) '<)
+                  ((> delta 0) '>)
+                  (t '=)))
+        (`(,(type number lv) . ,(type number rv))
+            (compare-indexes 0 0 (+ delta (- lv rv))))
+        (_ nil)))
 
 (defun compute-num-range (expr)
     (match (compute-range expr)
@@ -245,18 +274,55 @@
                     names)))
         `(let (,@maps) ,@code)))
 
-(defmacro iref (name &rest idxvals)
-    (let ((indexes (get name 'mv-indexes))
-          (layout  (get name 'mv-layout)))
+(defun check-dimension (expr dim verbose-p)
+    (let* ((range (match (compute-range expr)
+                      ((type number val)
+                          (cons val val))
+                      (`(ranging ,_ ,min ,max ,@_)
+                          (cons min max))
+                      (_ (when verbose-p
+                             (format t "Cannot determine range for: ~A~%" expr))
+                          nil)))
+           (min-val (car range))
+           (max-val (cdr range))
+           (checks  nil))
+        (case (compare-indexes min-val 0)
+            (<
+                (error "Index ~A can be less than the 0 limit" expr))
+            ((> =) nil)
+            (t
+                (when verbose-p
+                    (format t "Cannot compare ~A with 0~%" expr))
+                (push `(>= ,min-val 0) checks)))
+        (case (compare-indexes max-val dim)
+            (< nil)
+            ((> =)
+                (error "Index ~A can reach the top limit of ~A" expr dim))
+            (t
+                (when verbose-p
+                    (format t "Cannot compare ~A with ~A~%" expr dim))
+                (push `(< ,max-val ,dim) checks)))
+        checks))
+
+(defun expand-iref (name idxvals &key verbose-p)
+    (let ((indexes    (get name 'mv-indexes))
+          (layout     (get name 'mv-layout))
+          (dimensions (get name 'mv-dimensions)))
         (if (null indexes)
             `(aref ,name ,@idxvals)
             (let* ((idxtab (mapcar #'cons indexes idxvals))
                    (idxord (reorder idxtab layout #'caar))
-                   (idxlst (mapcan #'index-refexpr idxord)))
+                   (idxlst (mapcan #'index-refexpr idxord))
+                   (dimchk (mapcan #'(lambda (iexpr dim)
+                                         (check-dimension iexpr dim verbose-p))
+                               idxlst dimensions)))
                 (when (/= (length idxvals) (length indexes))
                     (error "Index count mismatch for ~A: ~A instead of ~A"
                         name idxvals indexes))
-                `(aref ,name ,@idxlst)))))
+                (values `(aref ,name ,@idxlst) t dimchk)))))
+
+(defmacro iref (name &rest idxvals)
+    (expand-iref name idxvals))
 
 (defun index-iterexpr (item iname &key (as iname) (var as) step (skip '(0 0))
                           (skip-low (car skip)) (skip-high (cadr skip)) layer)
@@ -370,3 +436,5 @@
 (pprint (macroexpand-1 '(setf (iref HFIFi 100 200) 5)))
 
 (pprint (macroexpand-1 '(loop-indexes HFIFi ((i :as z :step -1 :skip (2 2)) k) (setf (iref HFIFi z k) 5))))
+
+(defun xxx () (loop-indexes HFIFi ((i :as z :step -1 :skip (2 2)) k) (setf (iref HFIFi (+ z 2) k) 5)))
