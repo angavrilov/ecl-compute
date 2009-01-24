@@ -2,6 +2,8 @@
     (:documentation "A reader macro to support Waterloo Maple infix expressions in code")
     (:export "*INDEX-ACCESS-SYMBOL*" "ENABLE-EXPR-QUOTES"))
 
+;;;; kate: indent-width 4; replace-tabs yes; space-indent on;
+
 (in-package formula)
 
 ;;; Symbol to use for array indexing
