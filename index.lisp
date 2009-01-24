@@ -352,7 +352,8 @@
                    (line-min  (if (>= skip-low bands) (/ skip-low bands) 0))
                    (line-max  (if (>= skip-high bands) (/ skip-high bands) 0))
                    (var-range `(ranging ,var
-                                   ,line-min (- (- ,dimension ,line-max) 1)
+                                   ,line-min
+                                   ,(simplify-index `(- (- ,dimension ,line-max) 1))
                                    ,line-step ,step ,*layer*)))
                 (unless (and (integerp band-step) (integerp line-step)
                              (= (mod bands band-step) 0))
@@ -385,7 +386,8 @@
             (let* ((dimension (car (index-dimension item)))
                    (num-step  (or step 1))
                    (var-range `(ranging ,var
-                                   ,skip-low (- (- ,dimension ,skip-high) 1)
+                                   ,skip-low
+                                   ,(simplify-index `(- (- ,dimension ,skip-high) 1))
                                    ,num-step ,step ,*layer*))
                    (expr `(+ (* ,var-range ,by) ,minv)))
                 (list var expr var-range)))))
@@ -457,7 +459,9 @@
 
 (defmacro loop-range (rangespec &body code)
     (destructuring-bind
-        (var minv maxv stepv &rest x) rangespec
+        (rg var minv maxv stepv &rest x) rangespec
+        (unless (eql rg 'ranging)
+            (error "Invalid range spec: ~A" rangespec))
         (if (> stepv 0)
             `(do ((,var ,minv (+ ,var ,stepv)))
                  ((> ,var ,maxv) nil)
@@ -476,9 +480,7 @@
             ((null loop-lst)
                 (if (cdr cur-code) `(progn ,@cur-code) (car cur-code)))
             (setf cur-code
-                `((loop-range
-                      ,(simplify-index (cdr (car loop-lst)))
-                      ,@cur-code))))))
+                `((loop-range ,(car loop-lst) ,@cur-code))))))
 
 (defmacro loop-indexes (name idxlist &body code)
     (let ((indexes      (get name 'mv-indexes)))
