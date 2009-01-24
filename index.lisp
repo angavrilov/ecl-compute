@@ -165,9 +165,10 @@
                             #'(lambda (sub) (simplify-rec engine sub cache))
                             expr))
                (subs-res (funcall engine rec-res expr)))
-            (setf (gethash rec-res cache) t)
             (if (null subs-res)
-                rec-res
+                (progn
+                    (setf (gethash rec-res cache) t)
+                    rec-res)
                 (simplify-rec engine subs-res cache)))))
 
 (defun simplify-rec-once (engine expr)
@@ -492,6 +493,9 @@
                  ((< ,var ,minv) nil)
                  ,@code))))
 
+(defun wrap-progn (code)
+    (if (cdr code) `(progn ,@code) (car code)))
+
 (defun wrap-idxloops (name indexes idxlist code &key min-layer)
     (multiple-value-bind
         (loops replace-tbl) (build-loop-list
@@ -499,8 +503,7 @@
                                 :min-layer min-layer)
         (do ((loop-lst (nreverse loops) (cdr loop-lst))
              (cur-code (replace-unquoted code replace-tbl)))
-            ((null loop-lst)
-                (if (cdr cur-code) `(progn ,@cur-code) (car cur-code)))
+            ((null loop-lst) (wrap-progn cur-code))
             (setf cur-code
                 `((loop-range ,(car loop-lst) ,@cur-code))))))
 
