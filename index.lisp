@@ -333,8 +333,10 @@
             (setf (gethash form *iref-cache*)
                 (expand-iref name idxvals)))))
 
+(defparameter *layer* nil)
+
 (defun index-iterexpr (item iname &key (as iname) (var as) step (skip '(0 0))
-                          (skip-low (car skip)) (skip-high (cadr skip)) layer)
+                          (skip-low (car skip)) (skip-high (cadr skip)))
     (unless (symbolp var)
         (error "Expecting a symbol for dimension '~A', found: ~A" iname var))
     (destructuring-bind (iname minv maxv &key (by 1) (bands 1)) item
@@ -351,7 +353,7 @@
                    (line-max  (if (>= skip-high bands) (/ skip-high bands) 0))
                    (var-range `(ranging ,var
                                    ,line-min (- (- ,dimension ,line-max) 1)
-                                   ,line-step ,step ,layer)))
+                                   ,line-step ,step ,*layer*)))
                 (unless (and (integerp band-step) (integerp line-step)
                              (= (mod bands band-step) 0))
                     (error "~A: step ~A does not match band count ~A"
@@ -375,7 +377,8 @@
                     (let* ((band-var    (gensym (symbol-name var)))
                            (band-range `(ranging ,band-var
                                             ,band-min ,(- (- bands band-max) 1)
-                                            ,band-step ,band-step ,layer))
+                                            ,band-step ,band-step
+                                            ,(if *layer* (1+ *layer*))))
                            (expr `(+ (* (+ (* ,var-range ,bands) ,band-range) ,by) ,minv)))
                         (list var expr band-range var-range))))
             ;; Single band
@@ -383,7 +386,7 @@
                    (num-step  (or step 1))
                    (var-range `(ranging ,var
                                    ,skip-low (- (- ,dimension ,skip-high) 1)
-                                   ,num-step ,step ,layer))
+                                   ,num-step ,step ,*layer*))
                    (expr `(+ (* ,var-range ,by) ,minv)))
                 (list var expr var-range)))))
 
@@ -397,40 +400,91 @@
             (error "Unknown index '~A' for multivalue ~A: ~A" (car wrap2) name item))
         (apply #'index-iterexpr idxobj wrap2)))
 
-(defun replace-unquoted (expr src dest)
-    (cond
-        ((eql expr src) dest)
-        ((atom expr) expr)
-        ((eql (car expr) 'quote) expr)
-        (t (cons
-               (replace-unquoted (car expr) src dest)
-               (replace-unquoted (cdr expr) src dest)))))
+(defun replace-let (let-defs let-body replace-tbl)
+    (let ((new-defs (mapcar
+                        #'(lambda (item)
+                              (cons
+                                  (car item)
+                                  (replace-unquoted (cdr item) replace-tbl)))
+                        let-defs))
+          (new-table (set-difference replace-tbl let-defs :key #'car)))
+        (cons new-defs
+            (mapcar
+                #'(lambda (subexpr) (replace-unquoted subexpr new-table))
+               let-body))))
+
+(defun replace-let* (let-defs let-body replace-tbl)
+    (let* ((new-table replace-tbl)
+           (new-defs (mapcar
+                         #'(lambda (item)
+                               (let ((newv (replace-unquoted (cdr item) new-table)))
+                                   (setf new-table
+                                       (remove (car item) new-table :key #'car))
+                                   (cons (car item) newv)))
+                         let-defs)))
+        (cons new-defs
+            (mapcar
+                #'(lambda (subexpr) (replace-unquoted subexpr new-table))
+                let-body))))
+
+(defun replace-unquoted (expr replace-tbl)
+    (let ((target (cdr (assoc expr replace-tbl))))
+        (cond
+            (target target)
+            ((atom expr) expr)
+            ((null replace-tbl) expr)
+            ((eql (first expr) 'quote) expr)
+            ((eql (first expr) 'let)
+                (cons 'let (replace-let (second expr) (cddr expr) replace-tbl)))
+            ((eql (first expr) 'let*)
+                (cons 'let* (replace-let* (second expr) (cddr expr) replace-tbl)))
+            (t (cons
+                   (replace-unquoted (car expr) replace-tbl)
+                   (replace-unquoted (cdr expr) replace-tbl))))))
+
+(defun build-loop-list (name indexes idxlist &key min-layer)
+    (let ((replace-tbl nil)
+          (loop-lst    nil)
+          (*layer*     min-layer))
+        (dolist (item (reverse idxlist))
+            (let ((ie (apply-index-iterexpr name indexes item)))
+                (push (cons (first ie) (second ie)) replace-tbl)
+                (setf loop-lst
+                    (concatenate 'list (cddr ie) loop-lst))
+                (when *layer*
+                    (incf *layer* (length (cddr ie))))))
+        (values loop-lst replace-tbl)))
+
+(defmacro loop-range (rangespec &body code)
+    (destructuring-bind
+        (var minv maxv stepv &rest x) rangespec
+        (if (> stepv 0)
+            `(do ((,var ,minv (+ ,var ,stepv)))
+                 ((> ,var ,maxv) nil)
+                 ,@code)
+            `(do ((,var ,maxv (- ,var ,(- stepv))))
+                 ((< ,var ,minv) nil)
+                 ,@code))))
+
+(defun wrap-idxloops (name indexes idxlist code &key min-layer)
+    (multiple-value-bind
+        (loops replace-tbl) (build-loop-list
+                                name indexes idxlist
+                                :min-layer min-layer)
+        (do ((loop-lst (nreverse loops) (cdr loop-lst))
+             (cur-code (replace-unquoted code replace-tbl)))
+            ((null loop-lst)
+                (if (cdr cur-code) `(progn ,@cur-code) (car cur-code)))
+            (setf cur-code
+                `((loop-range
+                      ,(simplify-index (cdr (car loop-lst)))
+                      ,@cur-code))))))
 
 (defmacro loop-indexes (name idxlist &body code)
     (let ((indexes      (get name 'mv-indexes)))
         (unless indexes
             (error "Unknown multivalue ~A" name))
-        (let* ((new-code code)
-               (loops (mapcan
-                          #'(lambda (item)
-                                (let* ((ie (apply-index-iterexpr name indexes item)))
-                                    (setf new-code
-                                        (replace-unquoted new-code (car ie) (cadr ie)))
-                                    (cddr ie)))
-                          idxlist)))
-            (do ((loop-lst (nreverse loops) (cdr loop-lst))
-                 (cur-code new-code))
-                ((null loop-lst) (car cur-code))
-                (destructuring-bind
-                    (rg var minv maxv stepv &rest x) (simplify-index (car loop-lst))
-                    (setf cur-code
-                        (if (> stepv 0)
-                            `((do ((,var ,minv (+ ,var ,stepv)))
-                                 ((> ,var ,maxv) nil)
-                                 ,@cur-code))
-                            `((do ((,var ,maxv (- ,var ,(- stepv))))
-                                 ((< ,var ,minv) nil)
-                                 ,@cur-code)))))))))
+        (wrap-idxloops name indexes idxlist code)))
 
 (defparameter M1 0)
 (defparameter N5 0)
@@ -444,6 +498,8 @@
 (pprint (macroexpand-1 '(iref HFIFi 100 200)))
 (pprint (macroexpand-1 '(setf (iref HFIFi 100 200) 5)))
 
-(pprint (macroexpand-1 '(loop-indexes HFIFi ((i :as z :step -1 :skip (2 2)) k) (setf (iref HFIFi z k) 5))))
+(let ((tv (macroexpand-1 '(loop-indexes HFIFi ((i :as z :step -1 :skip (2 2)) k) (setf (iref HFIFi z k) 5)))))
+    (pprint tv)
+    (pprint (macroexpand-1 tv)))
 
 (defun xxx () (loop-indexes HFIFi ((i :as z :step -1 :skip (2 2)) k) (setf (iref HFIFi (+ z 2) k) 5)))
