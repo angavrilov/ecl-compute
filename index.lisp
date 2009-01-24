@@ -146,10 +146,22 @@
         ;; Nothing to do
         (_ nil)))
 
+(defun cons-save-old (old carv cdrv)
+    (if (and (eql carv (car old))
+             (eql cdrv (cdr old)))
+        old
+        (cons carv cdrv)))
+
+(defun mapcar-save-old (fun lst)
+    (if (null lst) nil
+        (cons-save-old lst
+            (funcall fun (car lst))
+            (mapcar-save-old fun (cdr lst)))))
+
 (defun simplify-rec (engine expr cache)
     (if (or (atom expr) (gethash expr cache))
         expr
-        (let* ((rec-res (mapcar
+        (let* ((rec-res (mapcar-save-old
                             #'(lambda (sub) (simplify-rec engine sub cache))
                             expr))
                (subs-res (funcall engine rec-res expr)))
@@ -161,7 +173,7 @@
 (defun simplify-rec-once (engine expr)
     (if (atom expr)
         expr
-        (let* ((rec-res (mapcar
+        (let* ((rec-res (mapcar-save-old
                             #'(lambda (sub) (simplify-rec-once engine sub))
                             expr))
                (subs-res (funcall engine rec-res expr)))
@@ -402,32 +414,34 @@
             (error "Unknown index '~A' for multivalue ~A: ~A" (car wrap2) name item))
         (apply #'index-iterexpr idxobj wrap2)))
 
-(defun replace-let (let-defs let-body replace-tbl)
-    (let ((new-defs (mapcar
+(defun replace-let (let-data replace-tbl)
+    (let ((new-defs (mapcar-save-old
                         #'(lambda (item)
-                              (cons
+                              (cons-save-old item
                                   (car item)
                                   (replace-unquoted (cdr item) replace-tbl)))
-                        let-defs))
-          (new-table (set-difference replace-tbl let-defs :key #'car)))
-        (cons new-defs
-            (mapcar
+                        (car let-data)))
+          (new-table (set-difference replace-tbl (car let-data) :key #'car)))
+        (cons-save-old let-data
+            new-defs
+            (mapcar-save-old
                 #'(lambda (subexpr) (replace-unquoted subexpr new-table))
-               let-body))))
+                (cdr let-data)))))
 
-(defun replace-let* (let-defs let-body replace-tbl)
+(defun replace-let* (let-data replace-tbl)
     (let* ((new-table replace-tbl)
-           (new-defs (mapcar
+           (new-defs (mapcar-save-old
                          #'(lambda (item)
                                (let ((newv (replace-unquoted (cdr item) new-table)))
                                    (setf new-table
                                        (remove (car item) new-table :key #'car))
-                                   (cons (car item) newv)))
-                         let-defs)))
-        (cons new-defs
-            (mapcar
+                                   (cons-save-old item (car item) newv)))
+                         (car let-data))))
+        (cons-save-old let-data
+            new-defs
+            (mapcar-save-old
                 #'(lambda (subexpr) (replace-unquoted subexpr new-table))
-                let-body))))
+                (cdr let-data)))))
 
 (defun replace-unquoted (expr replace-tbl)
     (let ((target (cdr (assoc expr replace-tbl))))
@@ -437,10 +451,12 @@
             ((null replace-tbl) expr)
             ((eql (first expr) 'quote) expr)
             ((eql (first expr) 'let)
-                (cons 'let (replace-let (second expr) (cddr expr) replace-tbl)))
+                (cons-save-old expr
+                    'let (replace-let (cdr expr) replace-tbl)))
             ((eql (first expr) 'let*)
-                (cons 'let* (replace-let* (second expr) (cddr expr) replace-tbl)))
-            (t (cons
+                (cons-save-old expr
+                    'let* (replace-let* (cdr expr) replace-tbl)))
+            (t (cons-save-old expr
                    (replace-unquoted (car expr) replace-tbl)
                    (replace-unquoted (cdr expr) replace-tbl))))))
 
