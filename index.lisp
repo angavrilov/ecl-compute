@@ -193,6 +193,12 @@
                 (simplify-index
                     (simplify-rec-once #'compute-range-1 expr))))))
 
+(defun index-expr-p (expr)
+    (or (numberp expr)
+        (and (consp expr)
+             (find (car expr)
+                 '(+ - * / floor ceiling mod rem truncate ranging)))))
+
 (defun compare-indexes (expr1 expr2 &optional (delta 0))
     (match (cons expr1 expr2)
         (`((+ ,le ,(type number lv)) . ,_)
