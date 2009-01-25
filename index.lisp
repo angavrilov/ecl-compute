@@ -14,6 +14,16 @@
     (declare (ignore min max delta ordered-p loop-level tail))
     expr)
 
+(defun ranging-order-flag (rspec)
+    (unless (eql (car rspec) 'ranging)
+        (error "Not a ranging spec: ~A" rspec))
+    (nth 5 rspec))
+
+(defun ranging-loop-level (rspec)
+    (unless (eql (car rspec) 'ranging)
+        (error "Not a ranging spec: ~A" rspec))
+    (nth 6 rspec))
+
 (defun compute-range-1 (expr &optional (old-expr expr))
     (match expr
         (`(- (ranging ,arg ,min ,max ,delta ,@rest))
@@ -316,7 +326,7 @@
             (t
                 (when verbose-p
                     (format t "Cannot compare ~A with 0~%" expr))
-                (push `(>= ,min-val 0) checks)))
+                (push `(>= ,(or min-val expr) 0) checks)))
         (case (compare-indexes max-val dim)
             (< nil)
             ((> =)
@@ -324,7 +334,7 @@
             (t
                 (when verbose-p
                     (format t "Cannot compare ~A with ~A~%" expr dim))
-                (push `(< ,max-val ,dim) checks)))
+                (push `(< ,(or max-val expr) ,dim) checks)))
         checks))
 
 (defun expand-iref (name idxvals &key verbose-p)
