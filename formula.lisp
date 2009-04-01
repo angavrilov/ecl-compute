@@ -19,6 +19,10 @@
             (when c (unread-char c stream))
             (coerce (reverse lst) 'string))))
 
+;;; Allow underscores in identifiers
+(defun ident-char-p (c) (or (alpha-char-p c) (eql c #\_)))
+(defun ident-num-char-p (c) (or (alphanumericp c) (eql c #\_)))
+
 ;;; Read a token from the stream
 (defun read-token (stream &optional (eof-error-p t) eof-value recursive-p)
     (let ((c (peek-char t stream eof-error-p eof-value recursive-p)))
@@ -42,24 +46,24 @@
                                 (read-string #'digit-char-p stream recursive-p))))
                     (read-from-string num-text)))
             ;; Symbol token
-            ((alpha-char-p c)
-                (let ((name (read-string #'alphanumericp stream recursive-p))
+            ((ident-char-p c)
+                (let ((name (read-string #'ident-num-char-p stream recursive-p))
                       (package *package*)
                       (next-c (peek-char nil stream nil nil recursive-p)))
                     ;; Handle package names:
                     (when (eql next-c #\:)
                         (read-char stream nil nil recursive-p)
                         (setq package (string-upcase name))
-                        (setq name (read-string #'alphanumericp stream recursive-p)))
+                        (setq name (read-string #'ident-num-char-p stream recursive-p)))
                     (intern (string-upcase name) package)))
             ;; Comparisons
-            ((find c '(#\/ #\< #\> #\!))
+            ((find c '(#\/ #\< #\> #\! #\:))
                 (let ((cc     (read-char stream nil nil recursive-p))
                       (next-c (peek-char nil stream nil nil recursive-p)))
                     (if (eql next-c #\=)
                         (progn
                             (read-char stream nil nil recursive-p)
-                            (intern (coerce (list cc next-cc) 'string)))
+                            (intern (coerce (list cc next-c) 'string) 'formula))
                         cc)))
             ;; Any other character
             (t (read-char stream eof-error-p eof-value recursive-p)))))
@@ -183,10 +187,22 @@
         (binary-ops (parse-expr-or tokens) nil
             (#\? read-branch `(if ,left-expr ,(car right-expr) ,(cdr right-expr))))))
 
+(defun parse-expr-assn (tokens)
+    (binary-ops (parse-expr tokens) nil
+        (|:=| parse-expr `(setf ,left-expr ,right-expr))))
+
+(defun parse-expr-progn (tokens)
+    (binary-ops (parse-expr-assn tokens) t
+        (#\; parse-expr-assn
+            (if (and (consp left-expr)
+                     (eql (car left-expr) 'progn))
+                (append left-expr (list right-expr))
+                `(progn ,left-expr ,right-expr)))))
+
 ;;; A reader macro to parse infix expressions
 (defun expr-reader (stream sc arg)
     (let ((tokens (read-tokens-until #\} stream t)))
-        (multiple-value-bind (expr tail) (parse-expr tokens)
+        (multiple-value-bind (expr tail) (parse-expr-progn tokens)
             (if (null tail)
                 expr
                 (error "Tokens beyond the end of expression: ~A" tail)))))
