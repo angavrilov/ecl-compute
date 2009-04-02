@@ -23,6 +23,9 @@
 (defun ident-char-p (c) (or (alpha-char-p c) (eql c #\_)))
 (defun ident-num-char-p (c) (or (alphanumericp c) (eql c #\_)))
 
+(defun append-str-char (s c)
+    (concatenate 'string s (coerce (list c) 'string)))
+
 ;;; Read a token from the stream
 (defun read-token (stream &optional (eof-error-p t) eof-value recursive-p)
     (let ((c (peek-char t stream eof-error-p eof-value recursive-p)))
@@ -36,11 +39,11 @@
                       (next-c (peek-char nil stream nil nil recursive-p)))
                     (when (find next-c '(#\E #\e)) ; Exponent
                         (read-char stream nil nil recursive-p)
-                        (setq num-text (concatenate 'string num-text next-c)
+                        (setq num-text (append-str-char num-text next-c)
                               next-c (peek-char nil stream nil nil recursive-p))
                         (when (find next-c '(#\+ #\-)) ; Allow sign after exponent
                             (read-char stream nil nil recursive-p)
-                            (setq num-text (concatenate 'string num-text next-c)))
+                            (setq num-text (append-str-char num-text next-c)))
                         (setq num-text ; Eat the actual digits
                             (concatenate 'string num-text
                                 (read-string #'digit-char-p stream recursive-p))))
