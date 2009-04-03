@@ -57,6 +57,14 @@
 (define-modify-macro incf-nil (&optional (delta 1))
     (lambda (val delta) (+ (or val 0) delta)))
 
+(defmacro use-cache ((key cache) &body code)
+    (let ((cached-val (gensym))
+          (found (gensym)))
+        `(multiple-value-bind (,cached-val ,found) (gethash ,key ,cache)
+            (if ,found ,cached-val
+                (setf (gethash ,key ,cache)
+                    (progn ,@code))))))
+
 (defparameter *minlevel-cache* (make-hash-table))
 
 (defun min-level (a b)
@@ -66,17 +74,15 @@
         (t (min a b))))
 
 (defun min-loop-level (expr)
-    (multiple-value-bind (cached-val found) (gethash expr *minlevel-cache*)
-        (if found cached-val
-            (setf (gethash expr *minlevel-cache*)
-                (match expr
-                    ((type atom _)
-                        nil)
-                    (`(ranging ,@_)
-                        (ranging-loop-level expr))
-                    (_
-                        (reduce #'min-level
-                            (mapcar #'min-loop-level expr))))))))
+    (use-cache (expr *minlevel-cache*)
+        (match expr
+            ((type atom _)
+                nil)
+            (`(ranging ,@_)
+                (ranging-loop-level expr))
+            (_
+                (reduce #'min-level
+                    (mapcar #'min-loop-level expr))))))
 
 (defparameter *consistency-checks* nil)
 
@@ -250,7 +256,144 @@
 (defun code-motion (expr &key pull-symbols)
     (factor-vars expr (build-factor-table (count-subexprs expr) pull-symbols)))
 
-(defmacro compute (name idxspec expr &key with)
+(defun recurse-factored (fun expr &rest args)
+    (let ((full-expr (if (symbolp expr) (get expr 'let-clause))))
+        (apply fun (or (cadr full-expr) expr) args)))
+
+(defparameter *upper-type-cache* nil)
+
+(defun propagate-upper-type (expr type)
+    (let ((cur-type (gethash expr *upper-type-cache*)))
+        (when (and cur-type type (not (eql cur-type type))
+                    (not (and (eql type 'float) (eql cur-type 'integer))))
+            (error "Conflicting type requirement: ~A must be both ~A and ~A"
+                    expr type cur-type))
+        (unless (or cur-type (numberp expr))
+            (when type
+                (setf (gethash expr *upper-type-cache*) type))
+
+            (labels ((mark-list (subexprs subtype)
+                        (dolist (e subexprs)
+                            (recurse-factored #'propagate-upper-type e subtype))))
+                (match expr
+                    ((type atom _) nil)
+                    (`(ranging ,expr ,min ,max ,@_)
+                        (mark-list (list expr min max) 'integer))
+                    (`(,(or 'aref 'iref) ,_ ,@indices)
+                        (mark-list indices 'integer))
+                    (`(,(or '+ '- '* '/ 'mod 'rem 'floor 'ceiling 'truncate) ,@rest)
+                        (mark-list rest type))
+                    (`(,(or 'and 'or) ,@rest)
+                        (mark-list rest 'boolean))
+                    (`(if ,cond ,@rest)
+                        (mark-list (list cond) type)
+                        (mark-list rest type))
+                    (`(,(or 'let 'let*) ,_ ,@rest)
+                        (mark-list (last rest) type))
+                    (`(,(or '> '< '>= '<= '/= '= 'setf 'loop-range) ,@rest)
+                        (mark-list rest nil))
+                    (`(_ ,@rest)
+                        (mark-list rest nil)))))))
+
+(defparameter *bottom-type-cache* nil)
+
+(defun get-bottom-type-1 (expr)
+    (use-cache (expr *bottom-type-cache*)
+        (let ((upper-type (gethash expr *upper-type-cache*)))
+            (labels ((merge-types (rest)
+                        (let ((types (mapcar #'get-bottom-type rest)))
+                            (when (find 'boolean types)
+                                (error "Cannot do arithmetics with booleans: ~A" expr))
+                            (cond
+                                ((find 'float types) 'float)
+                                ((every #'(lambda (tp) (eql tp 'integer)) types)
+                                    'integer)
+                                (t nil)))))
+                (match expr
+                    ((type float _) 'float)
+                    ((type integer _) 'integer)
+                    ((type symbol s) upper-type)
+                    (`(ranging ,@_) 'integer)
+                    (`(,(or 'aref 'iref) ,_ ,@idxlst)
+                        (dolist (idx idxlst) (get-bottom-type idx))
+                        'float)
+                    (`(,(or '+ '- '* '/ 'mod 'rem 'floor 'ceiling 'truncate) ,@rest)
+                        (merge-types rest))
+                    (`(if ,cond ,tb ,eb)
+                        (merge-types (list tb eb)))
+                    (`(,(or '> '< '>= '<= '/= '= 'and 'or) ,@rest)
+                        (dolist (arg rest) (get-bottom-type arg))
+                        'boolean)
+                    (`(,(or 'let 'let*) ,_ ,@rest)
+                        (dolist (arg rest) (get-bottom-type arg))
+                        (merge-types (last rest)))
+                    (`(,_ ,@rest)
+                        (dolist (arg rest) (get-bottom-type arg))
+                        nil)
+                    (_ nil))))))
+
+(defun get-bottom-type (expr)
+    (recurse-factored #'get-bottom-type-1 expr))
+
+(defun apply-skipping-structure (fun expr args)
+    (match expr
+        (`(,(or 'let 'let* 'loop-range) ,_ ,@rest)
+            (dolist (item rest)
+                (apply-skipping-structure fun item args)))
+        (`(safety-check ,_ ,@rest)
+            (dolist (item rest)
+                (apply-skipping-structure fun item args)))
+        (`(setf ,tgt ,src)
+            (apply fun tgt args)
+            (apply fun src args))
+        (`(declare ,@_) nil)
+        (_
+;            (format t "Unknown structure statement: ~A" expr)
+            (apply fun expr args))))
+
+(defun derive-types (expr)
+    (let ((*bottom-type-cache* (make-hash-table))
+          (*upper-type-cache* (make-hash-table)))
+        (propagate-upper-type expr nil)
+        (apply-skipping-structure #'get-bottom-type expr nil)
+        (maphash
+            #'(lambda (sub type)
+                  (let ((upper (gethash sub *upper-type-cache*)))
+                      (when (and upper type (not (eql upper type)))
+                          (error "Type conflict: ~A is ~A, required ~A~%~A"
+                              sub type upper expr))
+                      (when (and type (not upper))
+                          (propagate-upper-type sub type))))
+            *bottom-type-cache*)
+        (clrhash *bottom-type-cache*)
+        (apply-skipping-structure #'get-bottom-type expr nil)
+        *bottom-type-cache*))
+
+(defun annotate-types (expr)
+    (let ((types (derive-types expr)))
+        (simplify-rec-once
+            #'(lambda (expr old-expr)
+                (match expr
+                    (`(,(or 'let 'let*) ,@_)
+                        nil)
+                    (`(ranging ,@_)
+                        old-expr)
+                    (`(setf (the ,_ ,arg) ,tgt)
+                        `(setf ,arg ,tgt))
+                    (_
+                        (multiple-value-bind (type found) (gethash old-expr types)
+                            (if found
+                                (let ((tspec (match type
+                                                ('float 'single-float)
+                                                ('integer 'fixnum)
+                                                ('boolean 'boolean)
+                                                ('nil 'single-float)
+                                                (_ (error "Bad type ~A" type)))))
+                                    `(the ,tspec ,expr))
+                                expr)))))
+            expr)))
+
+(defmacro compute (&whole original name idxspec expr &key with)
     (let ((indexes    (get name 'mv-indexes))
           (layout     (get name 'mv-layout))
           (dimensions (get name 'mv-dimensions)))
@@ -268,8 +411,15 @@
                (*consistency-checks* (make-hash-table :test #'equal))
                (noiref-expr (simplify-iref nolet-expr))
                (check-expr  (insert-checks noiref-expr))
-               (motion-expr (code-motion check-expr)))
-            motion-expr)))
+               (motion-expr (code-motion check-expr))
+               (annot-expr  (annotate-types motion-expr)))
+            `(let ((,(gensym) 0))
+                (declare (optimize (safety 1) (debug 1)))
+                (pprint ',original)
+                ,annot-expr))))
+
+(defmacro calc (exprs)
+    (annotate-types (code-motion (simplify-iref (expand-let (macroexpand-1 `(letv ,exprs)))))))
 
 (setf var1 (macroexpand-1 '(compute HFIFi (z k) (+ old 10) :with ((old (iref HFIFi z k)))))
       var2 (macroexpand-1 '(compute HFIFi (z (+ k 1)) (+ (iref HFIFi z (1+ k)) (iref HFIFi z (1+ k)) 10))))

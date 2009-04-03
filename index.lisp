@@ -182,13 +182,13 @@
                 (simplify-rec engine subs-res cache)))))
 
 (defun simplify-rec-once (engine expr)
-    (if (atom expr)
-        expr
-        (let* ((rec-res (mapcar-save-old
+    (let* ((rec-res (if (atom expr)
+                        expr
+                        (mapcar-save-old
                             #'(lambda (sub) (simplify-rec-once engine sub))
-                            expr))
-               (subs-res (funcall engine rec-res expr)))
-            (if (null subs-res) rec-res subs-res))))
+                            expr)))
+           (subs-res (funcall engine rec-res expr)))
+        (if (null subs-res) rec-res subs-res)))
 
 (defparameter *simplify-cache* (make-hash-table))
 
@@ -498,9 +498,11 @@
         (if (> stepv 0)
             `(do ((,var ,minv (+ ,var ,stepv)))
                  ((> ,var ,maxv) nil)
+                 (declare (type fixnum ,var))
                  ,@code)
             `(do ((,var ,maxv (- ,var ,(- stepv))))
                  ((< ,var ,minv) nil)
+                 (declare (type fixnum ,var))
                  ,@code))))
 
 (defun wrap-progn (code)
