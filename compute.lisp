@@ -87,18 +87,19 @@
     (match expr
         (`(iref ,name ,@idxvals)
             (multiple-value-bind
-                (rexpr mv-p checks) (expand-iref name idxvals :verbose-p t)
+                (rexpr mv-p checks) (expand-iref name idxvals :verbose-p *consistency-checks*)
                 (unless mv-p
                     (error "Not a multivalue reference: ~A" expr))
-                ;; Remember bound consistency checks
-                (dolist (check checks)
-                    (incf-nil (gethash check *consistency-checks*)))
-                ;; Create dimension consistency checks
-                (do ((dims (get name 'mv-dimensions) (cdr dims))
-                     (idx 0 (1+ idx)))
-                    ((null dims) nil)
-                    (incf-nil (gethash `(<= ,(car dims) (arr-dim ,name ,idx))
-                                  *consistency-checks*)))
+                (when *consistency-checks*
+                    ;; Remember bound consistency checks
+                    (dolist (check checks)
+                        (incf-nil (gethash check *consistency-checks*)))
+                    ;; Create dimension consistency checks
+                    (do ((dims (get name 'mv-dimensions) (cdr dims))
+                         (idx 0 (1+ idx)))
+                        ((null dims) nil)
+                        (incf-nil (gethash `(<= ,(car dims) (arr-dim ,name ,idx))
+                                      *consistency-checks*))))
                 ;; Return the expression
                 rexpr))
         (_ nil)))
