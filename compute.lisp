@@ -17,6 +17,25 @@
                         (list idx-spec)
                         idx-spec))))))
 
+(defmacro letv (exprs &body blk)
+    (let* ((elst (if (and (consp exprs) (eql (car exprs) 'progn))
+                     (cdr exprs)
+                     (list exprs)))
+           (nonull (remove-if-not #'identity elst))
+           (body   (if blk blk (last nonull)))
+           (noblk  (if blk nonull (butlast nonull)))
+           (items  (mapcar
+                        #'(lambda (expr)
+                            (match expr
+                                (`(setf ,(type symbol var) ,vexpr)
+                                    (list var vexpr))
+                                (_
+                                    (error "letv: invalid expression ~A" expr))))
+                        noblk)))
+        (if items
+            `(let* ,items ,@body)
+            body)))
+
 (defun expand-let-1 (expr old-expr)
     (match expr
         (`(let ,vars ,@body)
@@ -28,6 +47,8 @@
             (wrap-progn body))
         (`(let* (,vspec ,@vars) ,@body)
             `(let (,vspec) (let* (,@vars) ,@body)))
+        (`(letv ,vars ,@body)
+            (expand-let-1 (macroexpand-1 expr) old-expr))
         (_ nil)))
 
 (defun expand-let (expr)
