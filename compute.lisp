@@ -164,12 +164,15 @@
         (count-subexprs-rec expr table)
         table))
 
-(defun build-factor-table (cnt-table)
+(defun build-factor-table (cnt-table pull-symbols)
     (let ((fct-table (make-hash-table :test #'equal)))
         (maphash
             #'(lambda (expr cnt)
                   ;; Factor common subexpressions
                   (when (> cnt 1)
+                      (setf (gethash expr fct-table) t))
+                  ;; Factor symbols
+                  (when (and pull-symbols (symbolp expr))
                       (setf (gethash expr fct-table) t))
                   ;; Factor loop-invariant subexpressions
                   (when (and (consp expr)
@@ -186,7 +189,7 @@
                   (when (match expr
                             ((type number _) t)
                             ('nil t)
-                            ((type symbol var) (get var 'mv-indexes))
+                            ((type symbol var) (not pull-symbols))
                             (`(ranging ,@_) (ranging-loop-level expr))
                             (_ nil))
                       (remhash expr fct-table)))
@@ -244,8 +247,8 @@
             `(let* ,(nreverse (car nil-list)) ,nexpr)
             nexpr)))
 
-(defun code-motion (expr)
-    (factor-vars expr (build-factor-table (count-subexprs expr))))
+(defun code-motion (expr &key pull-symbols)
+    (factor-vars expr (build-factor-table (count-subexprs expr) pull-symbols)))
 
 (defmacro compute (name idxspec expr &key with)
     (let ((indexes    (get name 'mv-indexes))
