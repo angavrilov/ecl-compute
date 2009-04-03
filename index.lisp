@@ -325,7 +325,7 @@
             ((> =) nil)
             (t
                 (when verbose-p
-                    (format t "Cannot compare ~A with 0~%" expr))
+                    (format t "Cannot compare ~A~%  as min value ~A with 0~%" expr min-val))
                 (push `(>= ,(or min-val expr) 0) checks)))
         (case (compare-indexes max-val dim)
             (< nil)
@@ -333,7 +333,7 @@
                 (error "Index ~A can reach the top limit of ~A" expr dim))
             (t
                 (when verbose-p
-                    (format t "Cannot compare ~A with ~A~%" expr dim))
+                    (format t "Cannot compare ~A~%  as max value ~A with ~A~%" expr max-val dim))
                 (push `(< ,(or max-val expr) ,dim) checks)))
         checks))
 
