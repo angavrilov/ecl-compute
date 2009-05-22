@@ -283,13 +283,13 @@
            (decl-dims (mapcar #'(lambda (x) '*) index-dims)))
         `(eval-when (:compile-toplevel :load-toplevel :execute)
              (defvar ,name nil)
-             (declaim (type (array simple-float ,decl-dims) ,name))
+             (declaim (type (array single-float ,decl-dims) ,name))
              (set-prop-nochange ',name 'mv-indexes ',indexes)
              (set-prop-nochange ',name 'mv-layout ',layout)
              (setf (get ',name 'mv-dimensions) ',index-dims)
              (defun ,(allocator-symbol name) ()
                  (make-array (list ,@index-dims)
-                     :element-type 'simple-float
+                     :element-type 'single-float
                      :initial-element 0.0))
              )))
 
