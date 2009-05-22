@@ -230,6 +230,10 @@
                   (t '=)))
         (`(,(type number lv) . ,(type number rv))
             (compare-indexes 0 0 (+ delta (- lv rv))))
+        (`((/ ,le ,(type number lv)) . ,re)
+            (compare-indexes le `(* ,re ,lv) (* delta lv)))
+        (`((* ,le ,(type number lv)) . ,re)
+            (compare-indexes le `(/ ,re ,lv) (/ delta lv)))
         (_ nil)))
 
 (defun compute-num-range (expr)
@@ -319,7 +323,7 @@
            (min-val (car range))
            (max-val (cdr range))
            (checks  nil))
-        (case (compare-indexes min-val 0)
+        (case (compare-indexes (or min-val expr) 0)
             (<
                 (error "Index ~A can be less than the 0 limit" expr))
             ((> =) nil)
@@ -327,7 +331,7 @@
                 (when verbose-p
                     (format t "Cannot compare ~A~%  as min value ~A with 0~%" expr min-val))
                 (push `(>= ,(or min-val expr) 0) checks)))
-        (case (compare-indexes max-val dim)
+        (case (compare-indexes (or max-val expr) dim)
             (< nil)
             ((> =)
                 (error "Index ~A can reach the top limit of ~A" expr dim))
