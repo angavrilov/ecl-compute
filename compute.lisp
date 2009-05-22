@@ -36,23 +36,48 @@
             `(let* ,items ,@body)
             body)))
 
-(defun expand-let-1 (expr old-expr)
-    (match expr
-        (`(let ,vars ,@body)
-            (replace-unquoted (wrap-progn body)
-                (mapcar
-                    #'(lambda (x) (cons (first x) (second x)))
-                    vars)))
-        (`(let* () ,@body)
-            (wrap-progn body))
-        (`(let* (,vspec ,@vars) ,@body)
-            `(let (,vspec) (let* (,@vars) ,@body)))
-        (`(letv ,vars ,@body)
-            (expand-let-1 (macroexpand-1 expr) old-expr))
-        (_ nil)))
+(defun apply-hash-change (table vals)
+    (mapcar #'(lambda (assn)
+                (let ((key (car assn)))
+                    (prog1
+                        (cons key (gethash key table))
+                        (setf (gethash key table) (cdr assn)))))
+        vals))
+
+(defmacro with-hash-update (table vals &body rest)
+    (let ((ss (gensym)))
+        `(let ((,ss (apply-hash-change ,table ,vals)))
+            (unwind-protect (progn ,@rest)
+                (apply-hash-change ,table ,ss)))))
+
+(defun expand-let-1 (expr table)
+    (or (gethash expr table)
+        (match expr
+            ((type atom _) expr)
+            (`(quote ,@_) expr)
+            (`(let ,vars ,@body)
+                (with-hash-update table
+                    (mapcar
+                        #'(lambda (x)
+                            (cons (first x)
+                                (expand-let-1 (second x) table)))
+                        vars)
+                    (expand-let-1 (wrap-progn body) table)))
+            (`(let* () ,@body)
+                (expand-let-1 (wrap-progn body) table))
+            (`(let* (,vspec ,@vars) ,@body)
+                (expand-let-1
+                    `(let (,vspec) (let* (,@vars) ,@body))
+                    table))
+            (`(letv ,vars ,@body)
+                (expand-let-1 (macroexpand-1 expr) table))
+            (_
+                (mapcar-save-old
+                    #'(lambda (e) (expand-let-1 e table))
+                    expr)))))
 
 (defun expand-let (expr)
-    (simplify-rec #'expand-let-1 expr (make-hash-table)))
+    (expand-let-1 expr (make-hash-table)))
 
 (define-modify-macro incf-nil (&optional (delta 1))
     (lambda (val delta) (+ (or val 0) delta)))
