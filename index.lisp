@@ -267,7 +267,7 @@
     (mapcar #'(lambda (iname)
                   (let ((item (find iname table :key key)))
                       (when (null item)
-                          (error "Cannot find index '~A' in ~A" iname table))
+                          (error "Cannot find multivalue index '~A' in supplied args ~A" iname table))
                       item))
         order))
 

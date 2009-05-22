@@ -420,6 +420,8 @@
                                 expr)))))
             expr)))
 
+(defparameter *current-compute* nil)
+
 (defmacro compute (&whole original name idxspec expr &key with)
     (let ((indexes    (get name 'mv-indexes))
           (layout     (get name 'mv-layout))
@@ -440,9 +442,8 @@
                (check-expr  (insert-checks noiref-expr))
                (motion-expr (code-motion check-expr))
                (annot-expr  (annotate-types motion-expr)))
-            `(let ((,(gensym) 0))
+            `(let ((*current-compute* ',original))
                 (declare (optimize (safety 1) (debug 1)))
-                (pprint '(compute ,name))
                 ,annot-expr))))
 
 (defmacro calc (exprs)
