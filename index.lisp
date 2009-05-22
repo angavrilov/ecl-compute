@@ -208,7 +208,7 @@
     (or (numberp expr)
         (and (consp expr)
              (find (car expr)
-                 '(+ - * / floor ceiling mod rem truncate ranging)))))
+                 '(+ - * / 1+ 1- floor ceiling mod rem truncate ranging)))))
 
 (defun compare-indexes (expr1 expr2 &optional (delta 0))
     (match (cons expr1 expr2)
