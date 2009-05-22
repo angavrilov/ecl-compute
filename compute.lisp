@@ -359,7 +359,9 @@
         (maphash
             #'(lambda (sub type)
                   (let ((upper (gethash sub *upper-type-cache*)))
-                      (when (and upper type (not (eql upper type)))
+                      (when (and upper type (not (eql upper type))
+                                (not (and (eql upper 'float)
+                                          (eql type 'integer))))
                           (error "Type conflict: ~A is ~A, required ~A~%~A"
                               sub type upper expr))
                       (when (and type (not upper))
@@ -415,7 +417,7 @@
                (annot-expr  (annotate-types motion-expr)))
             `(let ((,(gensym) 0))
                 (declare (optimize (safety 1) (debug 1)))
-                (pprint ',original)
+                (pprint '(compute ,name))
                 ,annot-expr))))
 
 (defmacro calc (exprs)
