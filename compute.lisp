@@ -201,15 +201,15 @@
         (maphash
             #'(lambda (expr cnt)
                   (when (eql (min-loop-level expr) level)
-                      (push expr clst)))
+                      (push (list expr expr) clst)))
             *consistency-checks*)
         clst))
 
 (defmacro safety-check (checks &body body)
     (let ((check-code (mapcar
                            #'(lambda (expr)
-                                 `(unless ,expr
-                                      (error "Safety check failed: ~A" (quote ,expr))))
+                                 `(unless ,(first expr)
+                                      (error "Safety check failed: ~A" (quote ,(second expr)))))
                            checks)))
         `(progn ,@check-code ,@body)))
 
@@ -248,6 +248,11 @@
             (dolist (titem (cdr target))
                 (count-subexprs-rec titem cnt-table))
             (count-subexprs-rec val cnt-table))
+        (`(safety-check ,checks ,@body)
+            (dolist (check checks)
+                (count-subexprs-rec (first check) cnt-table))
+            (dolist (item body)
+                (count-subexprs-rec item cnt-table)))
         (_
             (dolist (item (cdr expr))
                 (count-subexprs-rec item cnt-table)))))
@@ -316,6 +321,18 @@
         (`(setf ,target ,val)
             `(setf ,(factor-vars-dumb target fct-table cur-level var-list nil-list)
                  ,(factor-vars-rec val fct-table cur-level var-list nil-list)))
+        (`(safety-check ,checks ,@body)
+            (cons-save-old expr 'safety-check
+                (cons-save-old (cdr expr)
+                    (mapcar-save-old
+                        #'(lambda (check)
+                              (cons-save-old check
+                                  (factor-vars-rec (car check)
+                                      fct-table cur-level var-list nil-list)
+                                  (cdr check)))
+                        checks)
+                    (factor-vars-dumb body
+                        fct-table cur-level var-list nil-list))))
         (_
             (let ((factor (gethash expr fct-table)))
                 (cond
@@ -401,7 +418,7 @@
                     (`(,(or '> '< '>= '<= '/= '= 'loop-range) ,@rest)
                         (mark-list rest nil))
                     (`(safety-check ,checks ,@rest)
-                        (mark-list checks 'boolean)
+                        (mark-list (mapcar #'first checks) 'boolean)
                         (mark-list rest nil))
                     (`(,(or 'sin 'cos 'exp 'expt) ,@rest)
                         (mark-list rest 'float))
@@ -484,7 +501,7 @@
                 (apply-skipping-structure fun item args)))
         (`(safety-check ,checks ,@rest)
             (dolist (item checks)
-                (apply-skipping-structure fun item args))
+                (apply-skipping-structure fun (first item) args))
             (dolist (item rest)
                 (apply-skipping-structure fun item args)))
         (`(setf ,_ ,_)
@@ -533,6 +550,12 @@
                         old-expr)
                     (`(setf (the ,_ ,arg) ,tgt)
                         `(setf ,arg ,tgt))
+                    (`(safety-check ,checks1 ,@body)
+                        `(safety-check
+                             ,(mapcar #'(lambda (new old)
+                                            (cons (car new) (cdr old)))
+                                  checks1 (second old-expr))
+                             ,@body))
                     (_
                         (multiple-value-bind (type found) (gethash old-expr types)
                             (if found

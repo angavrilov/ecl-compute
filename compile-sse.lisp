@@ -230,9 +230,10 @@
                          (`(safety-check ,checks ,@body)
                              (dolist (check checks)
                                  (write-string "if (!(" out)
-                                 (compile-form out check)
+                                 (compile-form out (first check))
                                  (write-line "))" out)
-                                 (format out "    FEerror(\"Safety check failed: ~A\",0);~%" check))
+                                 (format out "    FEerror(\"Safety check failed: ~A\",0);~%"
+                                     (second check)))
                              (dolist (cmd body)
                                  (compile-form out cmd t)))
                          (_
@@ -248,7 +249,7 @@
                                    arr-conds))
                     arr-map)
                 ;; Generate the code
-                `(safety-check ,(nreverse arr-conds)
+                `(safety-check ,(nreverse (mapcar #'list arr-conds arr-conds))
                     (ffi:clines "#include <math.h>")
                     (ffi:c-inline ,(nreverse args) ,(nreverse arg-types)
                          :void ,code))))))
