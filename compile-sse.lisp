@@ -149,6 +149,37 @@
                              (write-string "(" out)
                              (compile-form out a)
                              (write-string ")" out))
+
+                         ;; This is actually incorrect, because integer division
+                         ;; in C is equivalent to truncate, but we use them only
+                         ;; for positive numbers, where there is no difference.
+                         ;; However, as a special case, for powers of 2 we can
+                         ;; precisely emulate floor&rem using bit operations.
+                         ((when (and (eql (gethash form types) 'integer)
+                                     (= (logand b (1- b)) 0))
+                             `(,(as op (or 'floor 'mod))
+                                      ,a ,(type integer b)))
+                             (write-string "(((int)(" out)
+                             (compile-form out a)
+                             (if (eql op 'floor)
+                                 (format out "))>>~A)"
+                                     (do ((cnt 0 (1+ cnt))
+                                          (bv b (ash bv -1)))
+                                         ((<= bv 1) cnt)))
+                                 (format out "))&~A)" (1- b))))
+                         ((when (eql (gethash form types) 'integer)
+                             `(,(as op (or 'floor 'mod)) ,a ,b))
+                             (write-string "((int)((" out)
+                             (compile-form out a)
+                             (write-string ")" out)
+                             (write-string (case op
+                                               (floor "/")
+                                               (mod "%"))
+                                 out)
+                             (write-string "(" out)
+                             (compile-form out b)
+                             (write-string ")))" out))
+
                          (`(,(as func (or 'floor 'ceiling 'sin 'cos 'exp 'expt))
                                ,arg ,@rest)
                              (write-string (case func

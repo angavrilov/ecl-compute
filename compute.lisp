@@ -158,7 +158,7 @@
                         (when (or (null *consistency-checks*)
                                   (not (null (min-loop-level expr)))
                                   (= 1 (incf-nil
-                                               (gethash `(= (mod ,expr ,b) 0)
+                                               (gethash `(= (rem ,expr ,b) 0)
                                                    *consistency-checks*))))
                             (format t
                                 "~%Possibly misaligned reference: ~A (~A,~A)~% in ~A~% orig ~A~%"
@@ -469,8 +469,11 @@
                         'integer)
                     (`(setf ,target ,src)
                         (merge-types (list target src)))
-                    (`(,(or '+ '- '* '/ 'mod 'rem 'floor 'ceiling 'truncate) ,@rest)
+                    (`(,(or '+ '- '* '/ 'floor 'ceiling) ,@rest)
                         (merge-types rest))
+                    (`(,(or 'mod 'rem 'truncate) ,@rest)
+                        (dolist (arg rest) (get-bottom-type arg))
+                        'integer)
                     (`(,(or 'sin 'cos 'exp 'expt) ,@rest)
                         (dolist (arg rest) (get-bottom-type arg))
                         'float)
