@@ -261,7 +261,8 @@
                              (return-from compute original))))
         (multiple-value-bind
                 (indexes layout dimensions) (get-multivalue-info name)
-            (let* ((idxtab    (mapcar #'cons indexes idxspec))
+            (let* ((*current-compute* original)
+                   (idxtab    (mapcar #'cons indexes idxspec))
                    (idxord    (reorder idxtab layout #'caar))
                    (idxlist   (mapcan #'get-iter-spec idxord))
                    (idxvars   (mapcar #'get-index-var idxspec))

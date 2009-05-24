@@ -210,6 +210,15 @@
              (find (car expr)
                  '(+ - * / 1+ 1- floor ceiling mod rem truncate ranging)))))
 
+(defun remove-ranges (expr)
+    (simplify-rec-once
+        #'(lambda (expr old)
+              (if (and (consp expr)
+                       (eql (car expr) 'ranging))
+                  (second expr)
+                  nil))
+        expr))
+
 (defun compare-indexes (expr1 expr2 &optional (delta 0))
     (match (cons expr1 expr2)
         (`((+ ,le ,(type number lv)) . ,_)

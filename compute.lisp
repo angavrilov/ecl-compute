@@ -1,5 +1,7 @@
 ;;;; kate: indent-width 4; replace-tabs yes; space-indent on;
 
+(defparameter *current-compute* nil)
+
 (defun get-index-var (idx-spec)
     (if (or (atom idx-spec)
             (index-expr-p idx-spec))
@@ -115,6 +117,60 @@
 (defun arr-dim (arr idx)
     (nth idx (array-dimensions arr)))
 
+(defun force-integer (expr)
+    (if (integerp expr) expr nil))
+
+(defun check-index-alignment (expr iref-expr aref-expr)
+    (match expr
+        (`(ranging ,_ ,minv ,maxv ,step ,@_)
+            (cons step
+                (or (force-integer
+                        (simplify-index `(rem ,minv ,step)))
+                    (force-integer
+                        (simplify-index `(rem ,maxv ,step))))))
+        (`(* ,a ,(type number b))
+            (let ((alignment (check-index-alignment a iref-expr aref-expr)))
+                (cons (* (or (car alignment) 0) b)
+                      (* (or (cdr alignment) 1) b))))
+        (`(+ ,a ,(type number b))
+            (let ((alignment (check-index-alignment a iref-expr aref-expr)))
+                (cons (car alignment)
+                      (if (cdr alignment) (+ (cdr alignment) b)))))
+        (`(- ,a ,(type number b))
+            (let ((alignment (check-index-alignment a iref-expr aref-expr)))
+                (cons (car alignment)
+                      (if (cdr alignment) (- (cdr alignment) b)))))
+        (`(/ ,a ,(type number b))
+            (let* ((alignment (check-index-alignment a iref-expr aref-expr))
+                   (step-ref  (/ (or (car alignment) 0) b))
+                   (ofs-ref   (/ (or (cdr alignment) 1) b)))
+                (unless (integerp step-ref)
+                    (error "Too dense index iteration: ~A (~A,~A)~% in ~A~% orig ~A~%"
+                        (remove-ranges expr) step-ref ofs-ref
+                        (remove-ranges iref-expr)
+                        (remove-ranges aref-expr)))
+                (unless (integerp ofs-ref)
+                    (if (/= step-ref 0)
+                        (error "Misaligned reference: ~A (~A,~A)~% in ~A~% orig ~A~%"
+                            (remove-ranges expr) step-ref ofs-ref
+                            (remove-ranges iref-expr)
+                            (remove-ranges aref-expr))
+                        (when (or (null *consistency-checks*)
+                                  (not (null (min-loop-level expr)))
+                                  (= 1 (incf-nil
+                                               (gethash `(= (mod ,expr ,b) 0)
+                                                   *consistency-checks*))))
+                            (format t
+                                "~%Possibly misaligned reference: ~A (~A,~A)~% in ~A~% orig ~A~%"
+                                (remove-ranges expr) step-ref ofs-ref
+                                (remove-ranges aref-expr)
+                                (remove-ranges iref-expr)))))
+                (cons (force-integer step-ref)
+                      (force-integer ofs-ref))))
+        (`(,_ ,@rest)
+            (dolist (arg rest) (check-index-alignment arg iref-expr aref-expr))
+            nil)))
+
 (defun simplify-iref-1 (expr old-expr)
     (match expr
         (`(iref ,name ,@idxvals)
@@ -122,6 +178,7 @@
                 (rexpr mv-p checks) (expand-iref name idxvals :verbose-p *consistency-checks*)
                 (unless mv-p
                     (error "Not a multivalue reference: ~A" expr))
+                (check-index-alignment rexpr expr rexpr)
                 (when *consistency-checks*
                     ;; Remember bound consistency checks
                     (dolist (check checks)
@@ -490,8 +547,6 @@
                                 expr)))))
             expr)))
 
-(defparameter *current-compute* nil)
-
 (defun get-multivalue-info (name)
     (let ((indexes    (get name 'mv-indexes))
           (layout     (get name 'mv-layout))
@@ -503,7 +558,8 @@
 (defmacro compute (&whole original name idxspec expr &key with)
     (multiple-value-bind
             (indexes layout dimensions) (get-multivalue-info name)
-        (let* ((idxtab    (mapcar #'cons indexes idxspec))
+        (let* ((*current-compute* original)
+               (idxtab    (mapcar #'cons indexes idxspec))
                (idxord    (reorder idxtab layout #'caar))
                (idxlist   (mapcan #'get-iter-spec idxord))
                (idxvars   (mapcar #'get-index-var idxspec))
