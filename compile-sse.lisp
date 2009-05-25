@@ -32,6 +32,10 @@
             (expand-macros `(+ ,v 1)))
         (`(1- ,v)
             (expand-macros `(- ,v 1)))
+        (`(expt ,v 1)
+            (expand-macros v))
+        (`(expt ,v 2)
+            (expand-macros `(* ,v ,v)))
         ((cons (or 'ranging 'aref 'iref
                    '+ '- '* '/ 'mod 'rem 'floor 'ceiling 'truncate
                    'and 'or 'if 'progn
