@@ -222,7 +222,8 @@
                  (compile-temp-assn (out var expr)
                      (let ((var-type (gethash expr types))
                            (var-name (concatenate 'string "tmp_"
-                                         (symbol-name var))))
+                                         (symbol-name var)))
+                           (var-fdiv (or (get var 'fdiv-users) 0)))
                          (write-string
                              (case var-type
                                  (float "__m128")
@@ -242,7 +243,11 @@
                                  (compile-form-ptr out expr))
                              (t
                                  (compile-form-float out expr)))
-                         (format out ");~%")))
+                         (format out ");~%")
+                         (when (> var-fdiv 1)
+                             (format out
+                                 "__m128 ~A_fdiv = _mm_div_ps(_mm_set1_ps(1.0),~A);~%"
+                                 var-name var-name))))
                  (is-level0-ptr (form)
                      (match form
                          ((type symbol sym)
@@ -318,6 +323,23 @@
                                      "_mm_add_ps(_mm_set1_ps(~A),_mm_setr_ps(0,1,2,3))"
                                      (symbol-name v))
                                  (format out "_mm_set1_ps(~A)" (symbol-name v))))
+                         ((when (> (or (get sym 'fdiv-users) 0) 1)
+                             `(/ ,x ,(type symbol sym)))
+                             (if (and (numberp x)
+                                      (= x 1))
+                                 (write-string "(" out)
+                                 (progn
+                                     (write-string "_mm_mul_ps(" out)
+                                     (compile-form-float out x)
+                                     (write-string "," out)))
+                             (if (eql (get sym 'loop-level) 0)
+                                 (format out "~A_fdiv" (ref-symbol sym))
+                                 (format out "_mm_set1_ps(~A_fdiv)" (ref-symbol sym)))
+                             (write-string ")" out))
+                         (`(/ ,x (type number num))
+                             (write-string "_mm_mul_ps(" out)
+                             (compile-form-float out x)
+                             (format out ",_mm_set1_ps(1.0/~A))" num))
                          (`(,(as op (or '+ '- '* '/
                                         'and 'or '> '< '>= '<= '/= '=)) ,a ,b)
                              (write-string (case op
@@ -477,7 +499,8 @@
                  (compile-temp-assn (out var expr)
                      (let ((var-type (gethash expr types))
                            (var-name (concatenate 'string "tmp_"
-                                         (symbol-name var))))
+                                         (symbol-name var)))
+                           (var-fdiv (or (get var 'fdiv-users) 0)))
                          (write-string (match var-type
                                      ('array "cl_object")
                                      ('float "float")
@@ -491,7 +514,10 @@
                          (write-string var-name out)
                          (write-string " = (" out)
                          (compile-form out expr)
-                         (format out ");~%")))
+                         (format out ");~%")
+                         (when (> var-fdiv 1)
+                             (format out "float ~A_fdiv = (1.0/~A);~%"
+                                 var-name var-name))))
                  (compile-form (out form &optional stmtp)
                      (match form
                          ((type symbol sym)
@@ -505,6 +531,17 @@
                              (if (ranging-loop-level form)
                                  (write-string (symbol-name v) out)
                                  (compile-form out v)))
+
+                         ((when (and (eql (gethash form types) 'float)
+                                     (> (or (get sym 'fdiv-users) 0) 1))
+                             `(/ ,x ,(type symbol sym)))
+                             (unless (and (numberp x)
+                                          (= x 1))
+                                 (write-string "(" out)
+                                 (compile-form out x)
+                                 (write-string ")*" out))
+                             (format out "~A_fdiv" (ref-symbol sym)))
+
                          (`(,(as op (or '+ '- '* '/ 'truncate 'rem 'ptr+
                                         'and 'or '> '< '>= '<= '/= '=)) ,a ,b)
                              (write-string "(" out)
