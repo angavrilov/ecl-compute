@@ -102,7 +102,7 @@
                              (float-ptr
                                  (compile-form-ptr out expr))
                              (t
-                                 (compile-form-float out (optimize-tree expr))))
+                                 (compile-form-float out expr)))
                          (format out ");~%")
                          (when (> var-fdiv 1)
                              (format out
@@ -306,7 +306,7 @@
                              (write-string "_mm_storeu_ps(" out)
                              (compile-form-ptr out target)
                              (write-line "," out)
-                             (compile-form-float out (optimize-tree expr))
+                             (compile-form-float out expr)
                              (write-line ");" out))
                          (`(progn ,@body)
                              (dolist (cmd body)
@@ -374,7 +374,7 @@
                          (write-string " " out)
                          (write-string var-name out)
                          (write-string " = (" out)
-                         (compile-form out (optimize-tree expr))
+                         (compile-form out expr)
                          (format out ");~%")
                          (when (> var-fdiv 1)
                              (format out "float ~A_fdiv = (1.0/~A);~%"
@@ -513,8 +513,7 @@
                          (`(setf ,target ,expr)
                              (compile-form out target)
                              (write-string " = (" out)
-                             (compile-form out
-                                (if stmtp (optimize-tree expr) expr))
+                             (compile-form out expr)
                              (write-string ")" out)
                              (when stmtp (write-line ";" out)))
                          (`(loop-range

@@ -2,9 +2,9 @@
             '("formula.lisp"
               "compute-pkg.lisp"
               "expr-index.lisp"
+              "expr-optimize.lisp"
               "expr-refactor.lisp"
               "expr-types.lisp"
-              "expr-optimize.lisp"
               "multivalue.lisp"
               "compute.lisp"
               "compile-sse.lisp"))

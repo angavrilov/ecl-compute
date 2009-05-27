@@ -260,7 +260,8 @@
                     `(loop-range ,range ,@nbody))))
         (`(setf ,target ,val)
             `(setf ,(factor-vars-dumb target fct-table cur-level var-list nil-list)
-                 ,(factor-vars-rec val fct-table cur-level var-list nil-list)))
+                 ,(optimize-tree
+                     (factor-vars-rec val fct-table cur-level var-list nil-list))))
         (`(safety-check ,checks ,@body)
             (cons-save-old expr 'safety-check
                 (cons-save-old (cdr expr)
@@ -282,7 +283,7 @@
                         (let* ((sym   (gensym))
                                (nexpr (factor-vars-dumb expr fct-table cur-level var-list nil-list))
                                (level (min-loop-level expr))
-                               (expr-pair (list sym nexpr)))
+                               (expr-pair (list sym (optimize-tree nexpr))))
                             (setf (get sym 'let-clause) expr-pair)
                             (setf (get sym 'full-expr) expr)
                             (setf (get sym 'loop-level) level)
