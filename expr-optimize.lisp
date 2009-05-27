@@ -1,5 +1,6 @@
 ;;;; kate: indent-width 4; replace-tabs yes; space-indent on;
 
+(in-package fast-compute)
 
 (defun toggle-minus (expr)
     (match expr

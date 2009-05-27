@@ -1,5 +1,6 @@
 (dolist (module-name
             '("formula.lisp"
+              "compute-pkg.lisp"
               "expr-index.lisp"
               "expr-refactor.lisp"
               "expr-types.lisp"

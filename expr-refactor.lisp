@@ -1,5 +1,7 @@
 ;;;; kate: indent-width 4; replace-tabs yes; space-indent on;
 
+(in-package fast-compute)
+
 (defun replace-let (let-data replace-tbl)
     (let ((new-defs (mapcar-save-old
                         #'(lambda (item)

@@ -1,5 +1,7 @@
 ;;;; kate: indent-width 4; replace-tabs yes; space-indent on;
 
+(in-package fast-compute)
+
 (defparameter *current-compute* nil)
 
 (defun get-index-var (idx-spec)

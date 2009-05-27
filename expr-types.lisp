@@ -1,5 +1,7 @@
 ;;;; kate: indent-width 4; replace-tabs yes; space-indent on;
 
+(in-package fast-compute)
+
 (defparameter *upper-type-cache* nil)
 
 (defun propagate-upper-type (expr type)

@@ -1,6 +1,6 @@
 ;;;; kate: indent-width 4; replace-tabs yes; space-indent on;
 
-(use-package :cl-match)
+(in-package fast-compute)
 
 (defmacro ranging (expr min max delta &optional ordered-p loop-level &rest tail)
     (declare (ignore min max delta ordered-p loop-level tail))

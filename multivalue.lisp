@@ -1,6 +1,6 @@
 ;;;; kate: indent-width 4; replace-tabs yes; space-indent on;
 
-(use-package :cl-match)
+(in-package fast-compute)
 
 (defun unsymbol (x)
     (if (symbolp x) (symbol-name x) x))
@@ -131,6 +131,11 @@
         (if cached cached
             (setf (gethash form *iref-cache*)
                 (expand-iref name idxvals)))))
+
+(defmacro enable-expr-quotes ()
+    (eval-when (:compile-toplevel :execute)
+        (formula:enable-expr-quotes)
+        (setf formula:*index-access-symbol* 'iref)))
 
 (defparameter *layer* nil)
 

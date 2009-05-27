@@ -1,5 +1,7 @@
 ;;;; kate: indent-width 4; replace-tabs yes; space-indent on;
 
+(in-package fast-compute)
+
 (defun expand-aref-1 (expr old-expr)
     (match expr
         (`(aref ,name ,@idxvals)
