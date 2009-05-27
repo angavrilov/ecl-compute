@@ -242,7 +242,7 @@
                              (float-ptr
                                  (compile-form-ptr out expr))
                              (t
-                                 (compile-form-float out expr)))
+                                 (compile-form-float out (optimize-tree expr))))
                          (format out ");~%")
                          (when (> var-fdiv 1)
                              (format out
@@ -445,7 +445,7 @@
                              (write-string "_mm_storeu_ps(" out)
                              (compile-form-ptr out target)
                              (write-line "," out)
-                             (compile-form-float out expr)
+                             (compile-form-float out (optimize-tree expr))
                              (write-line ");" out))
                          (`(progn ,@body)
                              (dolist (cmd body)
@@ -513,7 +513,7 @@
                          (write-string " " out)
                          (write-string var-name out)
                          (write-string " = (" out)
-                         (compile-form out expr)
+                         (compile-form out (optimize-tree expr))
                          (format out ");~%")
                          (when (> var-fdiv 1)
                              (format out "float ~A_fdiv = (1.0/~A);~%"
@@ -652,7 +652,8 @@
                          (`(setf ,target ,expr)
                              (compile-form out target)
                              (write-string " = (" out)
-                             (compile-form out expr)
+                             (compile-form out
+                                (if stmtp (optimize-tree expr) expr))
                              (write-string ")" out)
                              (when stmtp (write-line ";" out)))
                          (`(loop-range
@@ -743,8 +744,8 @@
                    (nolet-expr (expand-let nomacro-expr))
                    (*consistency-checks* (make-hash-table :test #'equal))
                    (noiref-expr (simplify-iref nolet-expr))
-                   (opt-expr    (optimize-tree noiref-expr))
-                   (noaref-expr (expand-aref opt-expr))
+                  ; (opt-expr    (optimize-tree noiref-expr))
+                   (noaref-expr (expand-aref noiref-expr))
                    (check-expr  (insert-checks noaref-expr))
                    (motion-expr (code-motion check-expr :pull-symbols t)))
                 `(let ((*current-compute* ',original))
