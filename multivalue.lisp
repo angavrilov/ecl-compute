@@ -44,7 +44,7 @@
             (error "Cannot redefine ~A for ~A to: ~A~% - already set to: ~A"
                 tag sym value old-value))))
 
-(defmacro def-multivalue (name indexes
+(defmacro def-multivalue (&whole defspec name indexes
                              &key (layout (mapcar #'car indexes)))
     (when (/= (length indexes) (length layout))
         (error "Cannot layout ~A as ~A" indexes layout))
@@ -57,11 +57,22 @@
              (set-prop-nochange ',name 'mv-indexes ',indexes)
              (set-prop-nochange ',name 'mv-layout ',layout)
              (setf (get ',name 'mv-dimensions) ',index-dims)
+             (setf (get ',name 'mv-definition) ',defspec)
              (defun ,(allocator-symbol name) ()
                  (make-array (list ,@index-dims)
                      :element-type 'single-float
                      :initial-element 0.0))
              )))
+
+(defmacro copy-multivalue (name aliases)
+    (let ((definition (get name 'mv-definition)))
+        (unless (and definition
+                     (eql (car definition) 'def-multivalue))
+            (error "Not a multivalue: ~A" name))
+        `(progn
+             ,@(mapcar #'(lambda (new-name)
+                             `(def-multivalue ,new-name ,@(cddr definition)))
+                   aliases))))
 
 (defmacro alloc-multivalues (&rest names)
     (let ((commands (mapcar
