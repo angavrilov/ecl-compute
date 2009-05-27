@@ -572,22 +572,34 @@
                                  (compile-form out cmd t)))
                          (_
                              (error "Unrecognized form in compile-generic: ~A" form)))))
-            (let ((code (with-output-to-string (out)
-                            (compile-form out full_expr)))
-                  (arr-conds ()))
-                ;; Collect array checks
-                (maphash #'(lambda (arr dim)
-                               (push `(eql (array-element-type ,arr) 'single-float)
-                                   arr-conds)
-                               (push `(>= (length (array-dimensions ,arr)) ,(1+ dim))
-                                   arr-conds))
-                    arr-map)
+            (let* ((code   (with-output-to-string (out)
+                               (write-line "{" out)
+                               (compile-form out full_expr)
+                               (write-line "}" out)))
+                   (checks (with-output-to-string (out)
+                               (maphash
+                                   #'(lambda (arr dim)
+                                       (format out "{ cl_object arr = ~A; /* ~A */~%"
+                                           (ref-arg arr) arr)
+                                       (format out
+                                           "if (!ARRAYP(arr) && !VECTORP(arr))~%  FEerror(\"Not an array: ~A\",0);~%"
+                                           arr)
+                                       (write-line
+                                           "if ((VECTORP(arr)?arr->vector.elttype:arr->array.elttype)!=aet_sf)"
+                                           out)
+                                       (format out "  FEerror(\"Not a float array: ~A\",0);~%" arr)
+                                       (when (> dim 0)
+                                           (format out
+                                               "if (!ARRAYP(arr) || arr->array.rank <= ~A)~%  FEerror(\"Too few dimensions: ~A\",0);~%"
+                                               dim arr))
+                                       (write-line "};" out))
+                                   arr-map))))
                 ;; Generate the code
-                `(safety-check ,(nreverse (mapcar #'list arr-conds arr-conds))
+                `(progn
                     (ffi:clines "#include <math.h>")
                     (ffi:clines "#include <emmintrin.h>")
                     (ffi:c-inline ,(nreverse args) ,(nreverse arg-types)
-                         :void ,code))))))
+                         :void ,(concatenate 'string checks code)))))))
 
 (define-compiler-macro compute (&whole original name idxspec expr &key with)
     (handler-bind ((condition
