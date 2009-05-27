@@ -152,7 +152,7 @@
 
 (defun split-parts (lst)
     (let* ((len (length lst))
-           (half (ceiling len 2)))
+           (half (floor len 2)))
         (do ((head lst (cdr head))
              (part nil (cons (car head) part))
              (i 0 (1+ i)))
