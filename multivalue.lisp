@@ -144,7 +144,7 @@
                 (expand-iref name idxvals)))))
 
 (defmacro enable-expr-quotes ()
-    (eval-when (:compile-toplevel :execute)
+   `(eval-when (:compile-toplevel :execute)
         (formula:enable-expr-quotes)
         (setf formula:*index-access-symbol* 'iref)))
 
