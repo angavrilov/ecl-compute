@@ -29,6 +29,9 @@
 (defun allocator-symbol (mv-name)
     (symcat "ALLOC-" mv-name))
 
+(defun deallocator-symbol (mv-name)
+    (symcat "DEALLOC-" mv-name))
+
 (defun reorder (table order key)
     (mapcar #'(lambda (iname)
                   (let ((item (find iname table :key key)))
@@ -58,11 +61,26 @@
              (set-prop-nochange ',name 'mv-layout ',layout)
              (setf (get ',name 'mv-dimensions) ',index-dims)
              (setf (get ',name 'mv-definition) ',defspec)
-             (defun ,(allocator-symbol name) ()
-                 (make-array (list ,@index-dims)
-                     :element-type 'single-float
-                     :initial-element 0.0))
-             )))
+             (let ((reuse-list nil)
+                   (reuse-mutex (mp:make-lock)))
+                 (defun ,(allocator-symbol name) ()
+                     (mp:with-lock (reuse-mutex)
+                         (let ((dims (list ,@index-dims))
+                               (reusable (pop reuse-list)))
+                             (if (and reusable
+                                      (equal dims
+                                          (array-dimensions reusable)))
+                                 reusable
+                                 (progn
+                                     (setf reuse-list nil)
+                                     (make-array dims
+                                         :element-type 'single-float
+                                         :initial-element 0.0))))))
+                 (defun ,(deallocator-symbol name) (item)
+                     (unless (arrayp item)
+                         (error "Trying to deallocate a non-array multivalue"))
+                     (mp:with-lock (reuse-mutex)
+                         (push item reuse-list)))))))
 
 (defmacro copy-multivalue (name aliases)
     (let ((definition (get name 'mv-definition)))
@@ -85,8 +103,15 @@
     (let ((maps (mapcar
                     #'(lambda (name)
                         `(,name (,(allocator-symbol name))))
-                    names)))
-        `(let (,@maps) ,@code)))
+                    names))
+          (unmaps (mapcar
+                      #'(lambda (name)
+                          `(,(deallocator-symbol name) ,name))
+                      names)))
+        `(let (,@maps)
+             (prog1
+                 (progn ,@code)
+                 ,@unmaps))))
 
 (defun check-dimension (expr dim verbose-p)
     (let* ((range (match (compute-range expr)
