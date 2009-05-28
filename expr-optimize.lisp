@@ -332,6 +332,8 @@
 
 (defun optimize-tree (expr)
     (simplify-rec-once #'treeify-1
-        (simplify-rec-once #'pull-minus-1
-            (simplify-rec-once #'flatten-exprs-1
-                expr))))
+        (simplify-rec-once #'pull-factors-1
+            (canonify-tree
+                (simplify-rec-once #'pull-minus-1
+                    (simplify-rec-once #'flatten-exprs-1
+                        expr))))))

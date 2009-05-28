@@ -127,6 +127,8 @@
                                  (or ptr-0 ofs-0)))
                          (`(,(or '+ '-) ,a ,(type number b))
                              (is-level0-ptr a))
+                         (`(+ ,(type number b) ,a)
+                             (is-level0-ptr a))
                          (_
                              (error "Expression too complex in SSE ptr: ~A" form))))
                  (compile-form-ptr (out form)
@@ -147,7 +149,9 @@
                              (write-string ")+(" out)
                              (compile-form-ptr out ofs)
                              (write-string ")" out))
-                         (`(,(as op (or '+ '-)) ,a ,(type number b))
+                         ((or
+                             `(,(as op (or '+ '-)) ,a ,(type number b))
+                             `(,(as op '+) ,(type number b) ,a))
                              (write-string "(" out)
                              (compile-form-ptr out a)
                              (format out ")~A(~A)" op b))
@@ -201,6 +205,12 @@
                              (write-string "_mm_mul_ps(" out)
                              (compile-form-float out x)
                              (format out ",_mm_set1_ps(1.0/~A))" num))
+                         (`(/ ,(type number num))
+                             (format out "_mm_set1_ps(1.0/~A)" num))
+                         (`(/ ,x)
+                             (write-string "_mm_div_ps(_mm_set1_ps(1.0)," out)
+                             (compile-form-float out x)
+                             (write-string ")" out))
                          (`(,(as op (or '+ '- '* '/
                                         'and 'or '> '< '>= '<= '/= '=)) ,a ,b)
                              (write-string (case op
@@ -402,6 +412,12 @@
                                  (compile-form out x)
                                  (write-string ")*" out))
                              (format out "~A_fdiv" (ref-symbol sym)))
+
+                         ((when (eql (gethash form types) 'float)
+                             `(/ ,x))
+                             (write-string "1.0/(" out)
+                             (compile-form out x)
+                             (write-string ")" out))
 
                          (`(,(as op (or '+ '- '* '/ 'truncate 'rem 'ptr+
                                         'and 'or '> '< '>= '<= '/= '=)) ,a ,b)
