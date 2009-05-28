@@ -175,6 +175,16 @@
 
 (defparameter *layer* nil)
 
+(defun get-num-step (step)
+    (match step
+        (`(* ,x) x)
+        (_ (or step 1))))
+
+(defun get-ord-step (step)
+    (match step
+        (`(* ,_) nil)
+        (_ step)))
+
 (defun index-iterexpr (item iname &key (as iname) (var as) step (skip '(0 0))
                           (skip-low (car skip)) (skip-high (cadr skip)))
     (unless (symbolp var)
@@ -183,7 +193,7 @@
         (if (> bands 1)
             ;; Multiple bands
             (let* ((dimension (cadr (index-dimension item)))
-                   (num-step  (or step 1))
+                   (num-step  (get-num-step step))
                    (one-step  (if (> num-step 0) 1 -1))
                    (band-step (if (>= (abs num-step) bands) bands num-step))
                    (line-step (if (>= (abs num-step) bands) (/ num-step bands) one-step))
@@ -194,7 +204,7 @@
                    (var-range `(ranging ,var
                                    ,line-min
                                    ,(simplify-index `(- (- ,dimension ,line-max) 1))
-                                   ,line-step ,step ,*layer*)))
+                                   ,line-step ,(get-ord-step step) ,*layer*)))
                 (unless (and (integerp band-step) (integerp line-step)
                              (= (mod bands band-step) 0))
                     (error "~A: step ~A does not match band count ~A"
@@ -224,11 +234,11 @@
                         (list var expr band-range var-range))))
             ;; Single band
             (let* ((dimension (car (index-dimension item)))
-                   (num-step  (or step 1))
+                   (num-step  (get-num-step step))
                    (var-range `(ranging ,var
                                    ,skip-low
                                    ,(simplify-index `(- (- ,dimension ,skip-high) 1))
-                                   ,num-step ,step ,*layer*))
+                                   ,num-step ,(get-ord-step step) ,*layer*))
                    (expr `(+ (* ,var-range ,by) ,minv)))
                 (list var expr var-range)))))
 
