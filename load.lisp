@@ -6,6 +6,7 @@
               "expr-refactor.lisp"
               "expr-types.lisp"
               "multivalue.lisp"
+              "threads.lisp"
               "compute.lisp"
               "compile-sse.lisp"))
      (load (merge-pathnames module-name *load-pathname*)))

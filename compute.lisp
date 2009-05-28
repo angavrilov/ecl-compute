@@ -131,14 +131,6 @@
             `(safety-check ,checks ,new-expr)
             new-expr)))
 
-(defun get-multivalue-info (name)
-    (let ((indexes    (get name 'mv-indexes))
-          (layout     (get name 'mv-layout))
-          (dimensions (get name 'mv-dimensions)))
-        (when (null indexes)
-            (error "Unknown multivalue ~A" name))
-        (values indexes layout dimensions)))
-
 (defun wrap-with-let (with expr)
     (if with
         (if (or (eql (car with) 'progn)

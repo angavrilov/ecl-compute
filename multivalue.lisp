@@ -113,6 +113,14 @@
                  (progn ,@code)
                  ,@unmaps))))
 
+(defun get-multivalue-info (name)
+    (let ((indexes    (get name 'mv-indexes))
+          (layout     (get name 'mv-layout))
+          (dimensions (get name 'mv-dimensions)))
+        (when (null indexes)
+            (error "Unknown multivalue ~A" name))
+        (values indexes layout dimensions)))
+
 (defun check-dimension (expr dim verbose-p)
     (let* ((range (match (compute-range expr)
                       ((type number val)
@@ -285,9 +293,10 @@
         (loops replace-tbl) (build-loop-list
                                 name indexes idxlist
                                 :min-layer min-layer)
-        (do ((loop-lst (nreverse loops) (cdr loop-lst))
+        (do ((loop-lst (reverse loops) (cdr loop-lst))
              (cur-code (replace-unquoted code replace-tbl)))
-            ((null loop-lst) (wrap-progn cur-code))
+            ((null loop-lst)
+                (values (wrap-progn cur-code) loops))
             (setf cur-code
                 `((loop-range ,(car loop-lst) ,@cur-code))))))
 
