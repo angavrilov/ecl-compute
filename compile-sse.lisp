@@ -201,7 +201,7 @@
                                      (write-string fd-name out)
                                      (write-string (ref-extvar fd-name) out)))
                              (write-string ")" out))
-                         (`(/ ,x (type number num))
+                         (`(/ ,x ,(type number num))
                              (write-string "_mm_mul_ps(" out)
                              (compile-form-float out x)
                              (format out ",_mm_set1_ps(1.0/~A))" num))
