@@ -629,7 +629,7 @@
                    (idxord    (reorder idxtab layout #'caar))
                    (idxlist   (mapcan #'get-iter-spec idxord))
                    (idxvars   (mapcar #'get-index-var idxspec))
-                   (let-expr  (if with `(let* ,with ,expr) expr))
+                   (let-expr  (wrap-with-let with expr))
                    (full-expr `(setf (iref ,name ,@idxvars) ,let-expr))
                    (loop-expr (wrap-idxloops name indexes idxlist
                                   (list full-expr) :min-layer 0))
