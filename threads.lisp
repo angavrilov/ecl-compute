@@ -92,13 +92,12 @@
                  #'(lambda (,idx-sym ,cnt-sym)
                        (let* ((,rng-sym
                                   ,(simplify-index
-                                       `(ceiling (- ,maxv ,minv)
-                                           (* ,cnt-sym ,stepv))))
+                                       `(* (ceiling (- ,maxv ,minv)
+                                             (* ,cnt-sym ,stepv)) ,stepv)))
                               (,min-sym
                                   ,(simplify-index
                                        `(+ ,minv
-                                            (* (* ,rng-sym ,stepv)
-                                                ,idx-sym))))
+                                            (* ,rng-sym ,idx-sym))))
                               (,max-sym (min ,maxv
                                             (+ ,min-sym ,rng-sym))))
                            ,(funcall gen-func code)))))))
