@@ -616,7 +616,7 @@
                     (ffi:c-inline ,(nreverse args) ,(nreverse arg-types)
                          :void ,(concatenate 'string checks code)))))))
 
-(define-compiler-macro compute (&whole original name idxspec expr &key with)
+(define-compiler-macro compute (&whole original name idxspec expr &key with parallel)
     (handler-bind ((condition
                        #'(lambda (cond)
                              (format t "~%Fast C compilation failed:~%   ~A~%" cond)
@@ -630,16 +630,20 @@
                    (idxlist   (mapcan #'get-iter-spec idxord))
                    (idxvars   (mapcar #'get-index-var idxspec))
                    (let-expr  (wrap-with-let with expr))
-                   (full-expr `(setf (iref ,name ,@idxvars) ,let-expr))
-                   (loop-expr (wrap-idxloops name indexes idxlist
-                                  (list full-expr) :min-layer 0))
-                   (nomacro-expr (expand-macros loop-expr))
-                   (nolet-expr (expand-let nomacro-expr))
-                   (*consistency-checks* (make-hash-table :test #'equal))
-                   (noiref-expr (simplify-iref nolet-expr))
-                  ; (opt-expr    (optimize-tree noiref-expr))
-                   (noaref-expr (expand-aref noiref-expr))
-                   (check-expr  (insert-checks noaref-expr))
-                   (motion-expr (code-motion check-expr :pull-symbols t)))
-                `(let ((*current-compute* ',original))
-                    ,(compile-expr-generic motion-expr))))))
+                   (full-expr `(setf (iref ,name ,@idxvars) ,let-expr)))
+                (multiple-value-bind
+                    (loop-expr loop-list)
+                              (wrap-idxloops name indexes idxlist
+                                  (list full-expr) :min-layer 0)
+                    (let* ((nomacro-expr (expand-macros loop-expr))
+                           (nolet-expr   (expand-let nomacro-expr))
+                           (*consistency-checks* (make-hash-table :test #'equal))
+                           (noiref-expr (simplify-iref nolet-expr))
+                          ; (opt-expr    (optimize-tree noiref-expr))
+                           (noaref-expr (expand-aref noiref-expr))
+                           (check-expr  (insert-checks noaref-expr)))
+                        (wrap-compute-parallel parallel loop-list check-expr
+                            #'(lambda (code)
+                                 `(let ((*current-compute* ',original))
+                                      ,(compile-expr-generic
+                                           (code-motion code :pull-symbols t)))))))))))

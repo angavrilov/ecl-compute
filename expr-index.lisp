@@ -16,14 +16,23 @@
         (error "Not a ranging spec: ~A" rspec))
     (nth 6 rspec))
 
+(defun get-full-expr (expr)
+    (cond
+        ((symbolp expr)
+            (or (get expr 'full-expr) expr))
+        ((consp expr)
+            (mapcar-save-old #'get-full-expr expr))
+        (t
+            expr)))
+
 (defun compute-range-1 (expr &optional (old-expr expr))
     (match expr
         ((when (or (get smin 'full-expr)
                    (get smax 'full-expr))
             `(ranging ,arg ,(type symbol smin) ,(type symbol smax) ,@rest))
             `(ranging ,arg
-                 ,(or (get smin 'full-expr) smin)
-                 ,(or (get smax 'full-expr) smax)
+                 ,(get-full-expr smin)
+                 ,(get-full-expr smax)
                  ,@rest))
         (`(- (ranging ,arg ,min ,max ,delta ,@rest))
             `(ranging (- ,arg) (- ,max) (- ,min) (- ,delta) ,@rest))

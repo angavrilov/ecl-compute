@@ -68,14 +68,16 @@
 
 (defun wrap-parallel (range code &optional (gen-func #'identity))
     (destructuring-bind
-        (rs arg minv maxv stepv &rest tail) range
+        (rs arg iminv imaxv stepv &rest tail) range
         (unless (eql rs 'ranging)
             (error "Invalid range: ~A" range))
         (let ((min-sym (gensym))
               (max-sym (gensym))
               (rng-sym (gensym))
               (idx-sym (gensym))
-              (cnt-sym (gensym)))
+              (cnt-sym (gensym))
+              (minv (get-full-expr iminv))
+              (maxv (get-full-expr imaxv)))
             (setf (third range) min-sym)
             (setf (fourth range) max-sym)
             (setf (get min-sym 'full-expr) minv)
