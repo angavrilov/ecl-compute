@@ -92,14 +92,16 @@
                  #'(lambda (,idx-sym ,cnt-sym)
                        (let* ((,rng-sym
                                   ,(simplify-index
-                                       `(* (ceiling (- ,maxv ,minv)
-                                             (* ,cnt-sym ,stepv)) ,stepv)))
+                                       `(* (ceiling
+                                               (+ (- ,maxv ,minv) ,stepv)
+                                               (* ,cnt-sym ,stepv))
+                                           ,stepv)))
                               (,min-sym
                                   ,(simplify-index
                                        `(+ ,minv
                                             (* ,rng-sym ,idx-sym))))
                               (,max-sym (min ,maxv
-                                            (+ ,min-sym ,rng-sym))))
+                                            (- (+ ,min-sym ,rng-sym) ,stepv))))
                            ,(funcall gen-func code)))))))
 
 (defmacro parallel-loop ((name idxlist &key private-mv)
