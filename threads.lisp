@@ -7,6 +7,7 @@
 (defvar *worker-mutex*    (mp:make-lock))
 (defvar *work-start-cond* (mp:make-condition-variable))
 (defvar *work-done-cond*  (mp:make-condition-variable))
+(defvar *work-reset-cond*  (mp:make-condition-variable))
 
 (defvar *working-threads* 0)
 (defvar *task-function*   nil)
@@ -18,8 +19,9 @@
             (multiple-value-bind
                     (task w-count)
                     (mp:with-lock (*worker-mutex*)
-                        (mp:condition-variable-wait
-                            *work-start-cond* *worker-mutex*)
+                        (unless *task-function*
+                            (mp:condition-variable-wait
+                                *work-start-cond* *worker-mutex*))
                         (when (> idx *worker-count*)
                             (return-from worker-thread))
                         (values *task-function* *worker-count*))
@@ -32,7 +34,10 @@
                         (mp:with-lock (*worker-mutex*)
                             (incf *working-threads* -1)
                             (when (<= *working-threads* 0)
-                                (mp:condition-variable-broadcast *work-done-cond*)))))))
+                                (mp:condition-variable-broadcast *work-done-cond*))
+                            (when *task-function*
+                                (mp:condition-variable-wait
+                                    *work-reset-cond* *worker-mutex*)))))))
         (format t "Worker ~A exited.~%" idx)))
 
 (defun spawn-worker-threads (num)
@@ -64,7 +69,8 @@
             (when (> *working-threads* 0)
                 (mp:condition-variable-wait
                     *work-done-cond* *worker-mutex*))
-            (setf *task-function* nil))))
+            (setf *task-function* nil)
+            (mp:condition-variable-broadcast *work-reset-cond*))))
 
 (defun wrap-parallel (range code &optional (gen-func #'identity))
     (destructuring-bind
