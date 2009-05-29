@@ -559,7 +559,8 @@
                          (`(loop-range
                               (ranging ,arg ,min ,max ,delta ,@_)
                               ,@body)
-                             (format t "SSE inapplicable: ~A~%" (second form))
+                             (when (eql (ranging-loop-level (second form)) 0)
+                                 (format t "SSE inapplicable: ~A~%" (second form)))
                              (format out "{~%int ~A;~%for(~A = " arg arg)
                              (compile-form out (if (> delta 0) min max))
                              (format out "; ~A ~A " arg (if (> delta 0) "<=" ">="))
