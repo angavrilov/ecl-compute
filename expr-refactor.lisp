@@ -212,6 +212,12 @@
                   ;; Factor symbols
                   (when (and pull-symbols (symbolp expr))
                       (setf (gethash expr fct-table) t))
+                  ;; Factor references used on the lhs of an
+                  ;; assignment, and also somewhere else
+                  (when (and (consp expr)
+                             (eql (car expr) 'setf)
+                             (>= (or (gethash (second expr) cnt-table) 0) 1))
+                      (setf (gethash (second expr) fct-table) t))
                   ;; Factor loop-invariant subexpressions
                   (when (and (consp expr)
                             (not (find (car expr)
