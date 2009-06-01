@@ -3,6 +3,7 @@
 (in-package fast-compute)
 
 (defparameter *current-compute* nil)
+(defparameter *current-compute-body* nil)
 
 (defun get-index-var (idx-spec)
     (if (or (atom idx-spec)
@@ -176,18 +177,11 @@
                        (motion-expr (code-motion check-expr))
                        (annot-expr  (annotate-types motion-expr)))
                     (wrap-compute-parallel parallel loop-list
-                        `(let ((*current-compute* ',original))
+                        `(let ((*current-compute* ',original)
+                               (*current-compute-body* ',motion-expr))
                             (declare (optimize (safety 1) (debug 1)))
                             ,annot-expr)))))))
 
 (defmacro calc (exprs)
     (annotate-types (code-motion (simplify-iref (expand-let (macroexpand-1 `(letv ,exprs)))))))
 
-(setf var1 (macroexpand-1 '(compute HFIFi (z k) (+ old 10) :with ((old (iref HFIFi z k)))))
-      var2 (macroexpand-1 '(compute HFIFi (z (+ k 1)) (+ (iref HFIFi z (1+ k)) (iref HFIFi z (1+ k)) 10))))
-(pprint var1)
-(pprint var2)
-
-(defun xxx1 () (compute HFIFi (z k) (+ old 10) :with ((old (iref HFIFi z k)))))
-(defun xxx2 () (loop-indexes HFIFi ((k :skip-high 1))
-                   (compute HFIFi (z (+ k 2)) (+ (iref HFIFi z (+ k 2)) (iref HFIFi z (+ k 2)) 10))))

@@ -306,20 +306,3 @@
             (error "Unknown multivalue ~A" name))
         (wrap-idxloops name indexes idxlist code)))
 
-(defparameter M1 0)
-(defparameter N5 0)
-
-(pprint (macroexpand-1 '(def-multivalue HFIFi ((i 2 (1- N5) :bands 2) (k 2 (1- M1) :by 2)) :layout (k i))))
-
-(def-multivalue HFIFi ((i 2 (1- N5) :bands 2) (k 2 (1- M1) :by 2)) :layout (k i))
-
-(pprint (macroexpand-1 '(alloc-multivalues HFIFi)))
-(pprint (macroexpand-1 '(with-local-multivalues (HFIFi) foo)))
-(pprint (macroexpand-1 '(iref HFIFi 100 200)))
-(pprint (macroexpand-1 '(setf (iref HFIFi 100 200) 5)))
-
-(let ((tv (macroexpand-1 '(loop-indexes HFIFi ((i :as z :step -1 :skip (2 2)) k) (setf (iref HFIFi z k) 5)))))
-    (pprint tv)
-    (pprint (macroexpand-1 tv)))
-
-(defun xxx () (loop-indexes HFIFi ((i :as z :step -1 :skip (2 2)) k) (setf (iref HFIFi (+ z 2) k) 5)))
