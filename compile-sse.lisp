@@ -38,7 +38,7 @@
             (expand-macros v))
         (`(expt ,v 2)
             (expand-macros `(* ,v ,v)))
-        ((cons (or 'ranging 'aref 'iref
+        ((cons (or 'ranging 'aref 'iref '_grp
                    '+ '- '* '/ 'mod 'rem 'floor 'ceiling 'truncate
                    'and 'or 'if 'progn
                    'sin 'cos 'exp 'expt
@@ -181,6 +181,8 @@
                              (format out "_mm_set1_ps(~A)" val))
                          (`(declare ,@_)
                              (write-string "0" out))
+                         (`(_grp ,x)
+                             (compile-form-float out x))
                          (`(ranging ,v ,@_)
                              (if (eql (ranging-loop-level form) 0)
                                  (format out
@@ -398,6 +400,8 @@
                          (`(declare ,@_)
                              (unless stmtp
                                  (write-string "0" out)))
+                         (`(_grp ,x)
+                             (compile-form out x))
                          (`(ranging ,v ,@_)
                              (if (ranging-loop-level form)
                                  (write-string (symbol-name v) out)

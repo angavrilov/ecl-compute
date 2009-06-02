@@ -2,6 +2,8 @@
 
 (in-package fast-compute)
 
+(defmacro _grp (arg) arg)
+
 (defun replace-let (let-data replace-tbl)
     (let ((new-defs (mapcar-save-old
                         #'(lambda (item)
@@ -233,6 +235,7 @@
                   (when (match expr
                             ((type number _) t)
                             ('nil t)
+                            (`(_grp ,@_) t)
                             ((type symbol var) (not pull-symbols))
                             (`(ranging ,@_) (ranging-loop-level expr))
                             (_ nil))
