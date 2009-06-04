@@ -49,6 +49,18 @@
                                 (read-string #'digit-char-p stream recursive-p))))
                     (read-from-string num-text)))
             ;; Symbol token
+            ((eql c #\$)
+                (read-char stream nil nil recursive-p)
+                (let* ((name (read-string #'(lambda (cc) (not (eql cc #\$))) stream recursive-p))
+                       (split-pos (search ":" name))
+                       (package (if split-pos
+                                    (string-upcase (subseq name 0 split-pos))
+                                    *package*))
+                       (ident (if split-pos
+                                  (subseq name (1+ split-pos))
+                                  name)))
+                    (read-char stream nil nil recursive-p)
+                    (intern (string-upcase ident) package)))
             ((ident-char-p c)
                 (let ((name (read-string #'ident-num-char-p stream recursive-p))
                       (package *package*)
