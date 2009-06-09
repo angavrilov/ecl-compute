@@ -30,4 +30,7 @@
                   "compile-sse.lisp"))
         (load-interp module-name))
 
-    (load-compile "utils"))
+    (let ((c::*cc-flags*
+              (concatenate 'string c::*cc-flags*
+                  " -msse2")))
+        (load-compile "utils")))
