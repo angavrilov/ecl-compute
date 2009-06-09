@@ -1,3 +1,9 @@
+(require 'standard-cl)
+(require 'cl-match)
+
+(cl-match:defpattern si:quasiquote (&rest args)
+    (macroexpand-1 (cons 'si:quasiquote args)))
+
 (labels ((load-interp (name)
              (load (merge-pathnames name *load-pathname*)))
          (load-compile (name)
