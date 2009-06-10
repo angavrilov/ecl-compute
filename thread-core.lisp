@@ -44,6 +44,22 @@
     (defun set-cpu-affinity (cpus) (declare (ignore cpus)) nil)
 )
 
+(defmacro with-lock-spin ((lock &key max-tries) &body code)
+    (let ((lock-sym (gensym)))
+        `(let ((,lock-sym ,lock))
+            (unwind-protect
+                (progn
+                    ,(if max-tries
+                        `(loop for try-id from 1 to ,max-tries
+                          do (when (mp:get-lock ,lock-sym nil)
+                                 (return))
+                          finally (mp:get-lock ,lock-sym t))
+                        `(loop
+                            (when (mp:get-lock ,lock-sym nil)
+                                (return))))
+                    ,@code)
+                (mp:giveup-lock ,lock-sym)))))
+
 (defvar *worker-count*    0)
 (defvar *worker-threads*  ())
 (defvar *worker-mutex*    (mp:make-lock))
@@ -54,6 +70,10 @@
 (defvar *task-id*         0)
 (defvar *task-function*   nil)
 
+(defvar *dispatch-lock*   (mp:make-lock))
+(defvar *dispatch-pos*    0)
+(defvar *dispatch-limit*  0)
+
 (defun worker-thread (idx)
     (format t "Worker ~A starting.~%" idx)
     (unwind-protect
@@ -61,7 +81,7 @@
             (loop
                 (multiple-value-bind
                         (task task-id w-count)
-                        (mp:with-lock (*worker-mutex*)
+                        (with-lock-spin (*worker-mutex*)
                             (unless (and *task-function*
                                          (/= *task-id* last-id))
                                 (mp:condition-variable-wait
@@ -76,11 +96,25 @@
                                 (funcall task idx (1+ w-count))
                                 (error (err)
                                     (format t "Worker ~A failed:~%  ~A~%" idx err)))
-                            (mp:with-lock (*worker-mutex*)
+                            (with-lock-spin (*worker-mutex*)
                                 (incf *working-threads* -1)
                                 (when (<= *working-threads* 0)
                                     (mp:condition-variable-broadcast *work-done-cond*))))))))
         (format t "Worker ~A exited.~%" idx)))
+
+(defun thread-dispatch (idx fun)
+    (loop
+        (funcall fun idx *dispatch-limit*)
+        (with-lock-spin (*dispatch-lock*)
+            (setf idx *dispatch-pos*)
+            (when (< *dispatch-pos* *dispatch-limit*)
+                (incf *dispatch-pos*)))
+        (unless (< idx *dispatch-limit*)
+            (return))))
+
+(defun wrap-dispatch (fun)
+    #'(lambda (idx num)
+        (thread-dispatch idx fun)))
 
 (defun spawn-worker-threads (num)
     (mp:with-lock (*worker-mutex*)
@@ -95,7 +129,7 @@
                     #'worker-thread *worker-count*)
                 *worker-threads*))))
 
-(defun run-work (fun)
+(defun run-work (fun &key (dispatch-limit 1))
     (when (null fun)
         (error "Cannot run a NIL task"))
     (mp:with-lock (*worker-mutex*)
@@ -104,10 +138,12 @@
         (incf *task-id*)
         (setf *task-function* fun)
         (setf *working-threads* *worker-count*)
+        (setf *dispatch-pos* (1+ *worker-count*))
+        (setf *dispatch-limit* (* *dispatch-pos* (max 1 dispatch-limit)))
         (mp:condition-variable-broadcast *work-start-cond*))
     (unwind-protect
         (funcall fun 0 (1+ *worker-count*))
-        (mp:with-lock (*worker-mutex*)
+        (with-lock-spin (*worker-mutex*)
             (when (> *working-threads* 0)
                 (mp:condition-variable-wait
                     *work-done-cond* *worker-mutex*))

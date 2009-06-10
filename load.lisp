@@ -24,14 +24,14 @@
                   "expr-index.lisp"
                   "expr-optimize.lisp"
                   "expr-refactor.lisp"
-                  "expr-types.lisp"
-                  "multivalue.lisp"))
+                  "expr-types.lisp"))
         (load-interp module-name))
 
     (load-compile "thread-core")
 
     (dolist (module-name
-                '("threads.lisp"
+                '("multivalue.lisp"
+                  "threads.lisp"
                   "compute.lisp"
                   "compile-sse.lisp"))
         (load-interp module-name))
@@ -40,3 +40,4 @@
               (concatenate 'string c::*cc-flags*
                   " -msse2")))
         (load-compile "utils")))
+

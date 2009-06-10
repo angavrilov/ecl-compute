@@ -64,7 +64,7 @@
              (let ((reuse-list nil)
                    (reuse-mutex (mp:make-lock)))
                  (defun ,(allocator-symbol name) ()
-                     (mp:with-lock (reuse-mutex)
+                     (with-lock-spin (reuse-mutex)
                          (let ((dims (list ,@index-dims))
                                (reusable (pop reuse-list)))
                              (if (and reusable
@@ -79,7 +79,7 @@
                  (defun ,(deallocator-symbol name) (item)
                      (unless (arrayp item)
                          (error "Trying to deallocate a non-array multivalue"))
-                     (mp:with-lock (reuse-mutex)
+                     (with-lock-spin (reuse-mutex)
                          (push item reuse-list)))))))
 
 (defmacro copy-multivalue (name aliases)

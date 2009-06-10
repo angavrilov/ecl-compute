@@ -154,7 +154,7 @@
                              (when (ranging-order-flag range)
                                  (error "Loop ~A not parallelizable: ~A" parallel loop-list))
                              range))))
-            (wrap-parallel range code gen-func))))
+            (wrap-parallel range code :gen-func gen-func))))
 
 (defmacro compute (&whole original name idxspec expr &key with parallel)
     (multiple-value-bind
