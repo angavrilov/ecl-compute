@@ -44,21 +44,47 @@
     (defun set-cpu-affinity (cpus) (declare (ignore cpus)) nil)
 )
 
+(defun get-lock-spin (lock &key max-tries)
+    (if max-tries
+        (loop for try-id from 1 to max-tries
+         do (when (mp:get-lock lock nil)
+                 (return))
+         finally (mp:get-lock lock t))
+        (loop
+            (when (mp:get-lock lock nil)
+                (return)))))
+
 (defmacro with-lock-spin ((lock &key max-tries) &body code)
     (let ((lock-sym (gensym)))
         `(let ((,lock-sym ,lock))
             (unwind-protect
                 (progn
-                    ,(if max-tries
-                        `(loop for try-id from 1 to ,max-tries
-                          do (when (mp:get-lock ,lock-sym nil)
-                                 (return))
-                          finally (mp:get-lock ,lock-sym t))
-                        `(loop
-                            (when (mp:get-lock ,lock-sym nil)
-                                (return))))
+                    (get-lock-spin ,lock-sym :max-tries ,max-tries)
                     ,@code)
                 (mp:giveup-lock ,lock-sym)))))
+
+(defmacro condition-wait-spin ((cond mutex &key (max-tries 10000)) check) 
+    (let ((lock-sym (gensym))
+          (cond-sym (gensym))
+          (tries-sym (gensym))
+          (try-sym (gensym))
+          (found-sym (gensym)))
+        `(let ((,lock-sym ,mutex)
+               (,cond-sym ,cond)
+               (,tries-sym ,max-tries)
+               (,found-sym ,nil))
+            (when (> ,tries-sym 0)
+                (mp:giveup-lock ,lock-sym)
+                (unwind-protect
+                    (loop for ,try-sym from 1 to ,tries-sym do 
+                        (when ,check
+                            (setf ,found-sym t)
+                            (return)))
+                    (get-lock-spin ,lock-sym)))
+            (unless (or ,found-sym ,check)
+                (mp:condition-variable-wait ,cond-sym ,lock-sym)))))
+
+(defparameter *worker-cond-spins* 100000)
 
 (defvar *worker-count*    0)
 (defvar *worker-threads*  ())
@@ -84,8 +110,9 @@
                         (with-lock-spin (*worker-mutex*)
                             (unless (and *task-function*
                                          (/= *task-id* last-id))
-                                (mp:condition-variable-wait
-                                    *work-start-cond* *worker-mutex*))
+                                (condition-wait-spin (*work-start-cond* *worker-mutex*
+                                                         :max-tries *worker-cond-spins*)
+                                    (/= *task-id* last-id)))
                             (when (> idx *worker-count*)
                                 (return-from worker-thread))
                             (values *task-function* *task-id* *worker-count*))
@@ -121,6 +148,7 @@
         (do () ((<= *worker-count* num))
             (incf *worker-count* -1)
             (pop *worker-threads*))
+        (incf *task-id*)
         (mp:condition-variable-broadcast *work-start-cond*)
         (do () ((>= *worker-count* num))
             (incf *worker-count* 1)
@@ -145,8 +173,9 @@
         (funcall fun 0 (1+ *worker-count*))
         (with-lock-spin (*worker-mutex*)
             (when (> *working-threads* 0)
-                (mp:condition-variable-wait
-                    *work-done-cond* *worker-mutex*))
+                (condition-wait-spin (*work-done-cond* *worker-mutex*
+                                         :max-tries *worker-cond-spins*)
+                    (<= *working-threads* 0)))
             (setf *task-function* nil))))
 
 (defun set-compute-thread-count (num-threads &key (adjust-affinity t))
