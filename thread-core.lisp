@@ -94,6 +94,7 @@
 
 (defvar *working-threads* 0)
 (defvar *task-id*         0)
+(defvar *workers-failed*  0)
 (defvar *task-function*   nil)
 
 (defvar *dispatch-lock*   (mp:make-lock))
@@ -103,7 +104,7 @@
 (defun worker-thread (idx)
     (format t "Worker ~A starting.~%" idx)
     (unwind-protect
-        (let ((last-id 0))
+        (let ((last-id 0) (caught-error nil))
             (loop
                 (multiple-value-bind
                         (task task-id w-count)
@@ -118,13 +119,17 @@
                             (values *task-function* *task-id* *worker-count*))
                     (when (and task (/= task-id last-id))
                         (setf last-id task-id)
+                        (setf caught-error nil)
                         (unwind-protect
                             (handler-case
                                 (funcall task idx (1+ w-count))
-                                (error (err)
+                                (condition (err)
+                                    (setf caught-error t)
                                     (format t "Worker ~A failed:~%  ~A~%" idx err)))
                             (with-lock-spin (*worker-mutex*)
                                 (incf *working-threads* -1)
+                                (when caught-error
+                                    (incf *workers-failed*))
                                 (when (<= *working-threads* 0)
                                     (mp:condition-variable-broadcast *work-done-cond*))))))))
         (format t "Worker ~A exited.~%" idx)))
@@ -163,20 +168,27 @@
     (mp:with-lock (*worker-mutex*)
         (when *task-function*
             (error "Task already running"))
-        (incf *task-id*)
         (setf *task-function* fun)
+        (setf *workers-failed* 0)
         (setf *working-threads* *worker-count*)
         (setf *dispatch-pos* (1+ *worker-count*))
         (setf *dispatch-limit* (* *dispatch-pos* (max 1 dispatch-limit)))
+        (incf *task-id*)
         (mp:condition-variable-broadcast *work-start-cond*))
-    (unwind-protect
-        (funcall fun 0 (1+ *worker-count*))
-        (with-lock-spin (*worker-mutex*)
-            (when (> *working-threads* 0)
-                (condition-wait-spin (*work-done-cond* *worker-mutex*
-                                         :max-tries *worker-cond-spins*)
-                    (<= *working-threads* 0)))
-            (setf *task-function* nil))))
+    (let ((success nil))
+        (unwind-protect
+            (progn
+                (funcall fun 0 (1+ *worker-count*))
+                (setf success t))
+            (with-lock-spin (*worker-mutex*)
+                (when (> *working-threads* 0)
+                    (condition-wait-spin (*work-done-cond* *worker-mutex*
+                                             :max-tries *worker-cond-spins*)
+                        (<= *working-threads* 0)))
+                (setf *task-function* nil))
+            ;; Transfer errors from worker threads if we succeeded
+            (when (and success (> *workers-failed* 0))
+                (error "~A worker threads failed." *workers-failed*)))))
 
 (defun set-compute-thread-count (num-threads &key (adjust-affinity t))
     (let ((num-threads (or num-threads
