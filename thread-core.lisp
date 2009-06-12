@@ -57,10 +57,9 @@
 (defmacro with-lock-spin ((lock &key max-tries) &body code)
     (let ((lock-sym (gensym)))
         `(let ((,lock-sym ,lock))
+            (get-lock-spin ,lock-sym :max-tries ,max-tries)
             (unwind-protect
-                (progn
-                    (get-lock-spin ,lock-sym :max-tries ,max-tries)
-                    ,@code)
+                (progn ,@code)
                 (mp:giveup-lock ,lock-sym)))))
 
 (defmacro condition-wait-spin ((cond mutex &key (max-tries 10000)) check) 
@@ -100,6 +99,19 @@
 (defvar *dispatch-lock*   (mp:make-lock))
 (defvar *dispatch-pos*    0)
 (defvar *dispatch-limit*  0)
+
+(defun nuke-workers ()
+    (setf *worker-count* 0)
+    (incf *task-id*)
+    (mp:condition-variable-broadcast *work-start-cond*)
+    (sleep 0.2)
+    (dolist (thread *worker-threads*)
+        (mp:process-kill thread))
+    (sleep 0.1)
+    (setf *worker-threads* nil))
+
+(unless (find #'nuke-workers si::*exit-hooks*)
+    (push #'nuke-workers si::*exit-hooks*))
 
 (defun worker-thread (idx)
     (format t "Worker ~A starting.~%" idx)
