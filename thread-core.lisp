@@ -106,7 +106,7 @@
     (mp:condition-variable-broadcast *work-start-cond*)
     (sleep 0.2)
     (dolist (thread *worker-threads*)
-        (mp:process-kill thread))
+        (ignore-errors (mp:process-kill thread)))
     (sleep 0.1)
     (setf *worker-threads* nil))
 
