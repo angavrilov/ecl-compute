@@ -38,7 +38,7 @@
                     (`(if ,cond ,@rest)
                         (mark-list (list cond) 'boolean)
                         (mark-list rest type))
-                    (`(,(or 'let 'let*) ,_ ,@rest)
+                    (`(,(or 'let 'let* 'symbol-macrolet) ,_ ,@rest)
                         (mark-list (butlast rest) nil)
                         (mark-list (last rest) type))
                     (`(progn ,@rest)
@@ -112,7 +112,7 @@
                     (`(,(or '> '< '>= '<= '/= '= 'and 'or) ,@rest)
                         (dolist (arg rest) (get-bottom-type arg))
                         'boolean)
-                    (`(,(or 'let 'let*) ,_ ,@rest)
+                    (`(,(or 'let 'let* 'symbol-macrolet) ,_ ,@rest)
                         (dolist (arg rest) (get-bottom-type arg))
                         (merge-types (last rest)))
                     (`(progn ,@rest)
@@ -165,7 +165,7 @@
         (simplify-rec-once
             #'(lambda (expr old-expr)
                 (match expr
-                    (`(,(or 'let 'let*) ,@_)
+                    (`(,(or 'let 'let* 'symbol-macrolet) ,@_)
                         nil)
                     (`(ranging ,@_)
                         old-expr)

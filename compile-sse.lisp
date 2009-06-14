@@ -45,7 +45,7 @@
                    '> '< '>= '<= '/= '= 'setf 'loop-range) tail)
             (cons-save-old expr (car expr)
                 (mapcar-save-old #'expand-macros tail)))
-        (`(,(as op (or 'let 'let*)) ,vars ,@body)
+        (`(,(as op (or 'let 'let* 'symbol-macrolet)) ,vars ,@body)
             (cons-save-old expr op
                 (cons-save-old (cdr expr)
                     (mapcar-save-old

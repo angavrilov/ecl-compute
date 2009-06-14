@@ -43,6 +43,9 @@
             ((eql (first expr) 'let)
                 (cons-save-old expr
                     'let (replace-let (cdr expr) replace-tbl)))
+            ((eql (first expr) 'symbol-macrolet)
+                (cons-save-old expr
+                    'symbol-macrolet (replace-let (cdr expr) replace-tbl)))
             ((eql (first expr) 'let*)
                 (cons-save-old expr
                     'let* (replace-let* (cdr expr) replace-tbl)))
@@ -52,6 +55,16 @@
 
 (defun wrap-progn (code)
     (if (cdr code) `(progn ,@code) (car code)))
+
+(defun wrap-progn-filter (code)
+    (wrap-progn
+        (mapcan
+            #'(lambda (expr)
+                  (match expr
+                      (`(declare ,@_) nil)
+                      (`(progn ,@code) code)
+                      (_ (list expr))))
+            code)))
 
 (defmacro letv (exprs &body blk)
     (let* ((elst (if (and (consp exprs) (eql (car exprs) 'progn))
@@ -92,22 +105,27 @@
             ((type atom _) expr)
             (`(quote ,@_) expr)
             (`(declare ,@_) expr)
-            (`(let ,vars ,@body)
+            (`(,(or 'let 'symbol-macrolet) ,vars ,@body)
                 (with-hash-update table
                     (mapcar
                         #'(lambda (x)
                             (cons (first x)
                                 (expand-let-1 (second x) table)))
                         vars)
-                    (expand-let-1 (wrap-progn body) table)))
+                    (expand-let-1 (wrap-progn-filter body) table)))
             (`(let* () ,@body)
-                (expand-let-1 (wrap-progn body) table))
+                (expand-let-1 (wrap-progn-filter body) table))
             (`(let* (,vspec ,@vars) ,@body)
                 (expand-let-1
                     `(let (,vspec) (let* (,@vars) ,@body))
                     table))
             (`(letv ,vars ,@body)
                 (expand-let-1 (macroexpand-1 expr) table))
+            (`(progn ,@code)
+                (wrap-progn-filter
+                    (mapcar #'(lambda (x)
+                                  (expand-let-1 x table))
+                        code)))
             (_
                 (mapcar-save-old
                     #'(lambda (e) (expand-let-1 e table))
@@ -118,7 +136,10 @@
 
 (defun apply-skipping-structure (fun expr args)
     (match expr
-        (`(,(or 'let 'let* 'loop-range) ,_ ,@rest)
+        (`(progn ,@rest)
+            (dolist (item rest)
+                (apply-skipping-structure fun item args)))
+        (`(,(or 'let 'let* 'symbol-macrolet 'loop-range) ,_ ,@rest)
             (dolist (item rest)
                 (apply-skipping-structure fun item args)))
         (`(safety-check ,checks ,@rest)
