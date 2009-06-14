@@ -21,6 +21,18 @@
                 `(ptr-deref
                      ,(reduce #'(lambda (base ofs) `(ptr+ ,base ,ofs))
                             ofs-lst :initial-value `(arr-ptr ,name)))))
+        (`(tmp-ref ,name)
+            nil)
+        (`(tmp-ref ,name ,@idxvals)
+            (let ((rexpr (expand-aref-1 `(aref ,name ,@idxvals) old-expr)))
+                (simplify-index
+                    (simplify-rec-once
+                        #'(lambda (expr old-expr)
+                              (match expr
+                                  (`(arr-ptr (temporary ,@_)) (second expr))
+                                  (`(arr-dim (temporary ,_ ,dims ,@_) ,i)
+                                      (nth i dims))))
+                        rexpr))))
         (_ nil)))
 
 (defun expand-aref (expr)
@@ -38,7 +50,11 @@
             (expand-macros v))
         (`(expt ,v 2)
             (expand-macros `(* ,v ,v)))
-        ((cons (or 'ranging 'aref 'iref '_grp
+        (`(temporary ,name ,dims ,@rest)
+            `(temporary ,name
+                 ,(mapcar #'expand-macros dims)
+                 ,@rest))
+        ((cons (or 'ranging 'aref 'iref '_grp 'tmp-ref 'quote
                    '+ '- '* '/ 'mod 'rem 'floor 'ceiling 'truncate
                    'and 'or 'if 'progn
                    'sin 'cos 'exp 'expt
@@ -182,6 +198,8 @@
                          (`(declare ,@_)
                              (write-string "0" out))
                          (`(_grp ,x)
+                             (compile-form-float out x))
+                         (`(tmp-ref ,x)
                              (compile-form-float out x))
                          (`(ranging ,v ,@_)
                              (if (eql (ranging-loop-level form) 0)
@@ -369,7 +387,28 @@
                      (let ((rarr (unwrap-factored arr)))
                          (setf (gethash rarr arr-map)
                              (max dim (or (gethash rarr arr-map) 0)))))
+                 (compile-temporary (out var name dims)
+                     (let* ((const-dim (if (and dims (every #'numberp dims))
+                                           (reduce #'* dims)))
+                            (is-const (and const-dim (< const-dim 65536))))
+                         (write-string "float" out)
+                         (unless (or (null dims) is-const)
+                             (write-string "*" out))
+                         (format out " tmp_~A" (symbol-name var))
+                         (cond
+                             (is-const
+                                 (format out "[~A]" const-dim))
+                             (dims
+                                 (write-string " = (float*)ecl_alloc_atomic(" out)
+                                 (compile-form out
+                                     (reduce #'(lambda (a b) `(* ,a ,b)) dims))
+                                 (write-string ")" out)))
+                         (format out "; /* ~A */~%" name)))
                  (compile-temp-assn (out var expr)
+                     ;; Special case for temporary buffers
+                     (ifmatch `(temporary ',name ,dims ,@_) expr
+                         (return-from compile-temp-assn
+                             (compile-temporary out var name dims)))
                      (let ((var-type (gethash expr types))
                            (var-name (concatenate 'string "tmp_"
                                          (symbol-name var)))
@@ -401,6 +440,8 @@
                              (unless stmtp
                                  (write-string "0" out)))
                          (`(_grp ,x)
+                             (compile-form out x))
+                         (`(tmp-ref ,x)
                              (compile-form out x))
                          (`(ranging ,v ,@_)
                              (if (ranging-loop-level form)
@@ -621,7 +662,7 @@
                     (ffi:c-inline ,(nreverse args) ,(nreverse arg-types)
                          :void ,(concatenate 'string checks code)))))))
 
-(define-compiler-macro compute (&whole original name idxspec expr &key with parallel)
+(define-compiler-macro compute (&whole original name idxspec expr &key with carrying parallel)
     (handler-bind ((condition
                        #'(lambda (cond)
                              (format t "~%Fast C compilation failed:~%   ~A~%" cond)
@@ -630,8 +671,8 @@
         (let* ((*current-compute* original)
                (*consistency-checks* (make-hash-table :test #'equal)))
             (multiple-value-bind
-                    (loop-expr range-list loop-list)
-                    (make-compute-loops name idxspec expr with)
+                    (loop-expr loop-list range-list)
+                    (make-compute-loops name idxspec expr with carrying)
                 (let* ((nomacro-expr (expand-macros loop-expr))
                        (nolet-expr   (expand-let nomacro-expr))
                        (noiref-expr (simplify-iref nolet-expr))

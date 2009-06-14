@@ -72,10 +72,10 @@
     (multiple-value-bind
             (indexes layout dimensions) (get-multivalue-info name)
         (multiple-value-bind
-                (code loops) (wrap-idxloops name indexes idxlist code)
-            (let ((loops1 (remove-if #'ranging-order-flag loops)))
+                (code loops ranges) (wrap-idxloops name indexes idxlist code)
+            (let ((loops1 (remove-if #'ranging-order-flag ranges)))
                 (when (null loops1)
-                    (error "Cannot find a parallelizable loop: ~A" loops))
+                    (error "Cannot find a parallelizable loop: ~A" ranges))
                 (wrap-parallel (car loops1) code
                     :wrap-func 
                         #'(lambda (body)

@@ -61,6 +61,7 @@
         (mapcan
             #'(lambda (expr)
                   (match expr
+                      ('nil nil)
                       (`(declare ,@_) nil)
                       (`(progn ,@code) code)
                       (_ (list expr))))
@@ -180,6 +181,10 @@
                 nil)
             (`(ranging ,@_)
                 (ranging-loop-level expr))
+            (`(tmp-ref (temporary ,_ ,_ ,level ,@_) ,@args)
+                (reduce #'min-level
+                    (mapcar #'min-loop-level args)
+                    :initial-value level))
             (_
                 (reduce #'min-level
                     (mapcar #'min-loop-level expr))))))
@@ -207,6 +212,9 @@
             (count-subexprs-rec maxv cnt-table)
             (dolist (item body)
                 (count-subexprs-rec item cnt-table)))
+        (`(temporary ,_ ,dims ,@_)
+            (dolist (titem dims)
+                (count-subexprs-rec titem cnt-table)))
         (`(setf ,target ,val)
             (dolist (titem (cdr target))
                 (count-subexprs-rec titem cnt-table))
@@ -234,6 +242,9 @@
                       (setf (gethash expr fct-table) t))
                   ;; Factor symbols
                   (when (and pull-symbols (symbolp expr))
+                      (setf (gethash expr fct-table) t))
+                  ;; Factor temporaries
+                  (ifmatch `(temporary ,@_) expr
                       (setf (gethash expr fct-table) t))
                   ;; Factor references used on the lhs of an
                   ;; assignment, and also somewhere else
@@ -274,6 +285,7 @@
 (defun factor-vars-rec (expr fct-table cur-level var-list nil-list)
     (match expr
         (`(declare ,@_) expr)
+        (`(quote ,@_) expr)
         (`(loop-range ,range ,@body)
             (let* ((level (ranging-loop-level range))
                    (vlist (cons nil var-list))
@@ -285,6 +297,13 @@
                     (factor-vars-rec (third range) fct-table cur-level var-list nil-list))
                 (setf (fourth range)
                     (factor-vars-rec (fourth range) fct-table cur-level var-list nil-list))
+                ;; Pop the substitutions
+                (dolist (subs (car vlist))
+                    (setf (gethash
+                              (get (first subs) 'full-expr)
+                              fct-table)
+                        t))
+                ;; Wrap with let if needed
                 (if (car vlist)
                     `(loop-range ,range (let* ,(nreverse (car vlist)) ,@nbody))
                     `(loop-range ,range ,@nbody))))

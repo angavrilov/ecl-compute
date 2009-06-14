@@ -239,6 +239,7 @@
                                             ,band-step ,band-step
                                             ,(if *layer* (1+ *layer*))))
                            (expr `(+ (* (+ (* ,var-range ,bands) ,band-range) ,by) ,minv)))
+                        (setf (get band-var 'band-master) var)
                         (list var expr band-range var-range))))
             ;; Single band
             (let* ((dimension (car (index-dimension item)))
@@ -288,20 +289,24 @@
                  (declare (type fixnum ,var))
                  ,@code))))
 
+(defun do-wrap-loops (code ranges replace-tbl)
+    (let ((loops nil)
+          (cur-code (replace-unquoted code replace-tbl)))
+        (dolist (item (reverse ranges))
+            (let ((cloop `(loop-range ,item ,@cur-code)))
+                (push cloop loops)
+                (setf cur-code (list cloop))))
+        (values
+            (wrap-progn cur-code)
+            loops ranges replace-tbl)))
+
 (defun wrap-idxloops (name indexes idxlist code &key min-layer)
-    (multiple-value-bind
-        (ranges replace-tbl) (build-loop-list
-                                name indexes idxlist
-                                :min-layer min-layer)
-        (let ((loops nil)
-              (cur-code (replace-unquoted code replace-tbl)))
-            (dolist (item (reverse ranges))
-                (let ((cloop `(loop-range ,item ,@cur-code)))
-                    (push cloop loops)
-                    (setf cur-code (list cloop))))
-            (values
-                (wrap-progn cur-code)
-                ranges loops))))
+    (multiple-value-call
+        #'do-wrap-loops
+        code
+        (build-loop-list
+            name indexes idxlist
+            :min-layer min-layer)))
 
 (defmacro loop-indexes (name idxlist &body code)
     (let ((indexes      (get name 'mv-indexes)))

@@ -156,24 +156,120 @@
                              range))))
             (wrap-parallel range code :gen-func gen-func))))
 
-(defun make-compute-loops (name idxspec expr with)
+(defmacro temporary (name dims level)
+    (if (null dims)
+        0.0
+        `(the (array single-float)
+             (make-array ,dims
+                 :element-type 'single-float
+                 :initial-element 0.0))))
+
+(defmacro tmp-ref (temp &rest dims)
+    (if (null dims)
+        temp
+        `(aref ,temp ,@dims)))
+
+(defun create-carry (index carrying range-list loop-list with replace-tbl)
+    (let* ((pos       (or (position index range-list :key #'second)
+                          (error "Invalid carry index: ~A" index)))
+           (range     (nth pos range-list))
+           ;; Inner dimensions
+           (iranges   (nthcdr (1+ pos) range-list))
+           (idims     (mapcar #'(lambda (rg)
+                                    (simplify-index
+                                        `(+ (- ,(fourth rg) ,(third rg)) 1)))
+                          iranges))
+           (irefs     (mapcar #'(lambda (rg)
+                                    (simplify-index
+                                        `(- ,rg ,(third rg))))
+                          iranges))
+           ;; Modification points
+           (out-loop   (nth pos loop-list))
+           (last-loop  (car (last loop-list)))
+           ;; Carry variables
+           (carry-list (remove-if-not
+                           #'(lambda (ce)
+                                 (eql (first ce) index))
+                           carrying))
+           (init-code (do-wrap-loops
+                          (list (wrap-with-let with
+                                    (list* 'progn
+                                        (mapcar
+                                            #'(lambda (iexpr)
+                                                  `(setf ,(second iexpr)
+                                                         ,(third iexpr)))
+                                            carry-list))))
+                          iranges replace-tbl))
+           (alter-code  (replace-unquoted
+                            (wrap-with-let with
+                                (list* 'progn
+                                    (mapcar
+                                        #'(lambda (iexpr)
+                                              `(setf ,(second iexpr)
+                                                     ,(fourth iexpr)))
+                                        carry-list)))
+                            replace-tbl))
+           (name-table (mapcar
+                           #'(lambda (iexpr)
+                                 (list (second iexpr)
+                                     `(tmp-ref
+                                          (temporary ',(second iexpr) ,idims 0)
+                                          ,@irefs)))
+                           carry-list)))
+        (unless (ranging-order-flag range)
+            (error "Cannot carry over unordered index ~A" index))
+        ;; Skip the band loop, if found
+        (when (and (second out-loop)
+                   (eql
+                       (get (second (second out-loop)) 'band-master)
+                       index))
+            (setf out-loop (nth (1- pos) loop-list)))
+        ;; Splice in the new imperative code
+        (setf (cddr out-loop)
+            (cons init-code (cddr out-loop)))
+        (nconc last-loop (list alter-code))
+        ;; Return the new names
+        name-table))
+
+(defun make-compute-loops (name idxspec expr with carrying)
     (multiple-value-bind
             (indexes layout dimensions) (get-multivalue-info name)
         (let* ((idxtab    (mapcar #'cons indexes idxspec))
                (idxord    (reorder idxtab layout #'caar))
                (idxlist   (mapcan #'get-iter-spec idxord))
                (idxvars   (mapcar #'get-index-var idxspec))
-               (let-expr  (wrap-with-let with expr))
-               (full-expr `(setf (iref ,name ,@idxvars) ,let-expr)))
-            (wrap-idxloops name indexes idxlist
-                (list full-expr) :min-layer 0))))
+               (full-expr (wrap-with-let with
+                              `(setf (iref ,name ,@idxvars) ,expr))))
+            (multiple-value-bind
+                    (loop-expr loop-list range-list replace-tbl)
+                    (wrap-idxloops name indexes idxlist
+                        (list full-expr) :min-layer 0)
+                (let* ((carry-indices (if carrying
+                                          (reduce #'nunion
+                                              (mapcar #'list
+                                                  (mapcar #'first
+                                                      carrying)))))
+                       (carry-body `(progn nil ,loop-expr))
+                       (carry-table
+                           (mapcan
+                               #'(lambda (idx)
+                                     (create-carry
+                                         idx carrying range-list
+                                         (cons carry-body loop-list)
+                                         with replace-tbl))
+                               carry-indices)))
+                (values
+                    (if (null carry-table)
+                        loop-expr
+                        `(symbol-macrolet ,carry-table ,@(cddr carry-body)))
+                    loop-list range-list))))))
 
-(defmacro compute (&whole original name idxspec expr &key with parallel)
+(defmacro compute (&whole original name idxspec expr &key with carrying parallel)
     (let* ((*current-compute* original)
            (*consistency-checks* (make-hash-table :test #'equal)))
         (multiple-value-bind
-                (loop-expr range-list loop-list)
-                (make-compute-loops name idxspec expr with)
+                (loop-expr loop-list range-list)
+                (make-compute-loops name idxspec expr with carrying)
             (let* ((nolet-expr (expand-let loop-expr))
                    (noiref-expr (simplify-iref nolet-expr))
                    (check-expr  (insert-checks noiref-expr))
