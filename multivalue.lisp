@@ -290,19 +290,21 @@
 
 (defun wrap-idxloops (name indexes idxlist code &key min-layer)
     (multiple-value-bind
-        (loops replace-tbl) (build-loop-list
+        (ranges replace-tbl) (build-loop-list
                                 name indexes idxlist
                                 :min-layer min-layer)
-        (do ((loop-lst (reverse loops) (cdr loop-lst))
-             (cur-code (replace-unquoted code replace-tbl)))
-            ((null loop-lst)
-                (values (wrap-progn cur-code) loops))
-            (setf cur-code
-                `((loop-range ,(car loop-lst) ,@cur-code))))))
+        (let ((loops nil)
+              (cur-code (replace-unquoted code replace-tbl)))
+            (dolist (item (reverse ranges))
+                (let ((cloop `(loop-range ,item ,@cur-code)))
+                    (push cloop loops)
+                    (setf cur-code (list cloop))))
+            (values
+                (wrap-progn cur-code)
+                ranges loops))))
 
 (defmacro loop-indexes (name idxlist &body code)
     (let ((indexes      (get name 'mv-indexes)))
         (unless indexes
             (error "Unknown multivalue ~A" name))
         (wrap-idxloops name indexes idxlist code)))
-

@@ -627,28 +627,19 @@
                              (format t "~%Fast C compilation failed:~%   ~A~%" cond)
                              (format t "Reverting to ordinary lisp.~%")
                              (return-from compute original))))
-        (multiple-value-bind
-                (indexes layout dimensions) (get-multivalue-info name)
-            (let* ((*current-compute* original)
-                   (idxtab    (mapcar #'cons indexes idxspec))
-                   (idxord    (reorder idxtab layout #'caar))
-                   (idxlist   (mapcan #'get-iter-spec idxord))
-                   (idxvars   (mapcar #'get-index-var idxspec))
-                   (let-expr  (wrap-with-let with expr))
-                   (full-expr `(setf (iref ,name ,@idxvars) ,let-expr)))
-                (multiple-value-bind
-                    (loop-expr loop-list)
-                              (wrap-idxloops name indexes idxlist
-                                  (list full-expr) :min-layer 0)
-                    (let* ((nomacro-expr (expand-macros loop-expr))
-                           (nolet-expr   (expand-let nomacro-expr))
-                           (*consistency-checks* (make-hash-table :test #'equal))
-                           (noiref-expr (simplify-iref nolet-expr))
-                          ; (opt-expr    (optimize-tree noiref-expr))
-                           (noaref-expr (expand-aref noiref-expr))
-                           (check-expr  (insert-checks noaref-expr)))
-                        (wrap-compute-parallel parallel loop-list check-expr
-                            #'(lambda (code)
-                                 `(let ((*current-compute* ',original))
-                                      ,(compile-expr-generic
-                                           (code-motion code :pull-symbols t)))))))))))
+        (let* ((*current-compute* original)
+               (*consistency-checks* (make-hash-table :test #'equal)))
+            (multiple-value-bind
+                    (loop-expr range-list loop-list)
+                    (make-compute-loops name idxspec expr with)
+                (let* ((nomacro-expr (expand-macros loop-expr))
+                       (nolet-expr   (expand-let nomacro-expr))
+                       (noiref-expr (simplify-iref nolet-expr))
+                      ; (opt-expr    (optimize-tree noiref-expr))
+                       (noaref-expr (expand-aref noiref-expr))
+                       (check-expr  (insert-checks noaref-expr)))
+                    (wrap-compute-parallel parallel range-list check-expr
+                        #'(lambda (code)
+                             `(let ((*current-compute* ',original))
+                                  ,(compile-expr-generic
+                                       (code-motion code :pull-symbols t))))))))))

@@ -156,31 +156,34 @@
                              range))))
             (wrap-parallel range code :gen-func gen-func))))
 
-(defmacro compute (&whole original name idxspec expr &key with parallel)
+(defun make-compute-loops (name idxspec expr with)
     (multiple-value-bind
             (indexes layout dimensions) (get-multivalue-info name)
-        (let* ((*current-compute* original)
-               (idxtab    (mapcar #'cons indexes idxspec))
+        (let* ((idxtab    (mapcar #'cons indexes idxspec))
                (idxord    (reorder idxtab layout #'caar))
                (idxlist   (mapcan #'get-iter-spec idxord))
                (idxvars   (mapcar #'get-index-var idxspec))
                (let-expr  (wrap-with-let with expr))
                (full-expr `(setf (iref ,name ,@idxvars) ,let-expr)))
-            (multiple-value-bind
-                (loop-expr loop-list)
-                          (wrap-idxloops name indexes idxlist
-                              (list full-expr) :min-layer 0)
-                (let* ((nolet-expr (expand-let loop-expr))
-                       (*consistency-checks* (make-hash-table :test #'equal))
-                       (noiref-expr (simplify-iref nolet-expr))
-                       (check-expr  (insert-checks noiref-expr))
-                       (motion-expr (code-motion check-expr))
-                       (annot-expr  (annotate-types motion-expr)))
-                    (wrap-compute-parallel parallel loop-list
-                        `(let ((*current-compute* ',original)
-                               (*current-compute-body* ',motion-expr))
-                            (declare (optimize (safety 1) (debug 1)))
-                            ,annot-expr)))))))
+            (wrap-idxloops name indexes idxlist
+                (list full-expr) :min-layer 0))))
+
+(defmacro compute (&whole original name idxspec expr &key with parallel)
+    (let* ((*current-compute* original)
+           (*consistency-checks* (make-hash-table :test #'equal)))
+        (multiple-value-bind
+                (loop-expr range-list loop-list)
+                (make-compute-loops name idxspec expr with)
+            (let* ((nolet-expr (expand-let loop-expr))
+                   (noiref-expr (simplify-iref nolet-expr))
+                   (check-expr  (insert-checks noiref-expr))
+                   (motion-expr (code-motion check-expr))
+                   (annot-expr  (annotate-types motion-expr)))
+                (wrap-compute-parallel parallel range-list
+                    `(let ((*current-compute* ',original)
+                           (*current-compute-body* ',motion-expr))
+                        (declare (optimize (safety 1) (debug 1)))
+                        ,annot-expr))))))
 
 (defmacro calc (exprs)
     (annotate-types (code-motion (simplify-iref (expand-let (macroexpand-1 `(letv ,exprs)))))))
