@@ -17,10 +17,20 @@
                                                cstride))))))
                    (ofs-lst (mapcar #'(lambda (idx istride)
                                           (if istride `(* ,idx ,istride) idx))
-                                idxvals (nreverse stride-lst))))
+                                idxvals (nreverse stride-lst)))
+                   (ofs-expr (simplify-rec-once #'flatten-exprs-1 `(+ ,@ofs-lst)))
+                   (ofs-items (match ofs-expr (`(+ ,@rest) rest) (x (list x))))
+                   (levels   (remove-duplicates
+                                 (mapcar #'min-loop-level ofs-items)))
+                   (ofs-groups (mapcar
+                                   #'(lambda (lvl)
+                                         (simplify-rec-once #'treeify-1
+                                             `(+ ,@(remove lvl ofs-items
+                                                       :test-not #'eql :key #'min-loop-level))))
+                                    (sort levels #'level>))))
                 `(ptr-deref
                      ,(reduce #'(lambda (base ofs) `(ptr+ ,base ,ofs))
-                            ofs-lst :initial-value `(arr-ptr ,name)))))
+                            ofs-groups :initial-value `(arr-ptr ,name)))))
         (`(tmp-ref ,name)
             nil)
         (`(tmp-ref ,name ,@idxvals)

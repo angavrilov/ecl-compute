@@ -322,7 +322,7 @@
 (defun treeify-1 (expr old-expr)
     (match expr
         (`(ranging ,@_) old-expr)
-        (`(+ ,_) expr)
+        (`(+ ,x) x)
         (`(- ,_) expr)
         (`(+ ,@args)
             (treeify+ args))

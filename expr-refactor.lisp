@@ -191,6 +191,14 @@
         ((null b) a)
         (t (min a b))))
 
+(defun level< (a b)
+    (or (null b)
+        (and a (> a b))))
+
+(defun level> (a b)
+    (or (null a)
+        (and b (> a b))))
+
 (defun temporary-level (expr)
     (match expr
         (`(ptr+ ,ptr ,@_)
