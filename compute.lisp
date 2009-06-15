@@ -161,22 +161,39 @@
         temp
         `(aref ,temp ,@dims)))
 
-(defun create-carry (index carrying range-list loop-list with replace-tbl)
+(defun range-band-master (range)
+    (let ((idx (second range)))
+        (or (get idx 'band-master)
+            idx)))
+
+(defun prepend-loop-item (rloop entry)
+    (setf (cddr rloop)
+        (cons entry (cddr rloop))))
+
+(defun append-loop-item (rloop entry)
+    (nconc rloop (list entry)))
+
+(defun create-carry (index carrying range-list loop-list with in-with replace-tbl)
     (let* ((pos       (or (position index range-list :key #'second)
                           (error "Invalid carry index: ~A" index)))
            (range     (nth pos range-list))
            ;; Inner dimensions
            (iranges   (nthcdr (1+ pos) range-list))
+           (act-ranges (mapcar #'compute-range
+                           (remove-if #'(lambda (rg)
+                                            (get (second rg) 'is-cluster))
+                               iranges)))
            (idims     (mapcar #'(lambda (rg)
                                     (simplify-index
                                         `(+ (- ,(fourth rg) ,(third rg)) 1)))
-                          iranges))
+                          act-ranges))
            (irefs     (mapcar #'(lambda (rg)
                                     (simplify-index
                                         `(- ,rg ,(third rg))))
-                          iranges))
+                          act-ranges))
            ;; Modification points
-           (out-loop   (nth pos loop-list))
+           (out-pos    (position index range-list :key #'range-band-master))
+           (out-loop   (nth out-pos loop-list))
            (last-loop  (car (last loop-list)))
            ;; Carry variables
            (carry-list (remove-if-not
@@ -193,7 +210,7 @@
                                             carry-list))))
                           iranges replace-tbl))
            (alter-code  (replace-unquoted
-                            (wrap-with-let with
+                            (wrap-with-let in-with
                                 (list* 'progn
                                     (mapcar
                                         #'(lambda (iexpr)
@@ -210,20 +227,18 @@
                            carry-list)))
         (unless (ranging-order-flag range)
             (error "Cannot carry over unordered index ~A" index))
-        ;; Skip the band loop, if found
-        (when (and (second out-loop)
-                   (eql
-                       (get (second (second out-loop)) 'band-master)
-                       index))
-            (setf out-loop (nth (1- pos) loop-list)))
         ;; Splice in the new imperative code
-        (setf (cddr out-loop)
-            (cons init-code (cddr out-loop)))
-        (nconc last-loop (list alter-code))
+        (prepend-loop-item out-loop init-code)
+        (append-loop-item last-loop alter-code)
         ;; Return the new names
         name-table))
 
-(defun make-compute-carry (carrying loop-expr loop-list range-list with replace-tbl)
+(defun wrap-symbol-macrolet (with body)
+    (if with
+        `(symbol-macrolet ,with ,body)
+        body))
+
+(defun make-compute-carry (carrying loop-expr loop-list range-list with in-with replace-tbl)
     (let* ((carry-indices (if carrying
                               (reduce #'nunion
                                   (mapcar #'list
@@ -236,36 +251,139 @@
                          (create-carry
                              idx carrying range-list
                              (cons carry-body loop-list)
-                             with replace-tbl))
+                             with in-with replace-tbl))
                    carry-indices)))
         (if (null carry-table)
             loop-expr
-            `(symbol-macrolet ,carry-table ,@(cddr carry-body)))))
+            (wrap-symbol-macrolet carry-table carry-body))))
 
-(defun make-compute-loops (name idxspec expr in-with carrying)
+(defun cluster-loop (range-list range size)
+    (let* ((pos     (position range range-list))
+           (index   (second range))
+           (minv    (third range))
+           (maxv    (fourth range))
+           (delta   (fifth range))
+           (size    (- size (mod size (abs delta))))
+           (clidx   (gensym (symbol-name index)))
+           (nrange `(ranging ,clidx ,minv ,maxv
+                        ,(if (> delta 0) size (- size))
+                        ,(ranging-order-flag range) nil)))
+        (setf (get clidx 'band-master) index)
+        (setf (get clidx 'is-cluster) t)
+        (setf (third range)
+            (if (> delta 0) nrange
+                `(max ,minv (- ,nrange ,(1- size)))))
+        (setf (fourth range)
+            (if (< delta 0) nrange
+                `(min ,maxv (+ ,nrange ,(1- size)))))
+        (values
+            (nconc
+                (subseq range-list 0 pos)
+                (list nrange)
+                (subseq range-list pos))
+            nrange)))
+
+(defparameter *loop-cluster-size* 1024)
+
+(defun make-cluster-refs (range-list vars replace-tbl with)
+    (if (null vars)
+        (values range-list with nil nil)
+        (let* ((index (car (last range-list)))
+               (index-var (second index))
+               ;; Cluster the loop (alters ranges)
+               (range-list
+                   (cluster-loop range-list index *loop-cluster-size*))
+               ;; Build a let map fragment
+               (cache-index (copy-list index))
+               (cluster-base (third index))
+               (symtbl
+                   (mapcar
+                       #'(lambda (name)
+                             `(,(gensym (symbol-name name))
+                                  (tmp-ref
+                                      (temporary ',name
+                                          (,*loop-cluster-size*) 0)
+                                      (- ,index ,cluster-base))))
+                       vars))
+               (reftbl
+                   (mapcar
+                       #'(lambda (name symdef)
+                             (list name (first symdef)))
+                       vars symtbl))
+               ;; Build a loop to compute values
+               (calc-loop
+                   `(loop-range ,cache-index
+                       ,(replace-unquoted
+                            (wrap-with-let with
+                                `(progn
+                                     ,@(mapcar
+                                           #'(lambda (name symdef)
+                                                 `(setf ,(first symdef) ,name))
+                                           vars symtbl)))
+                            (subst cache-index index replace-tbl))))
+               ;; Build a with map with vars replaced with temp refs
+               (in-with (append
+                            reftbl
+                            (remove-if #'(lambda (x) (find x vars))
+                                with :key #'first))))
+            (setf (fifth cache-index) (abs (fifth cache-index))) ; delta
+            (setf (sixth cache-index) nil) ;order
+            (setf (seventh cache-index) 0) ;level
+            (values range-list in-with calc-loop symtbl))))
+
+(defun make-compute-loops (name idxspec expr in-with carrying cluster-cache)
     (multiple-value-bind
             (indexes layout dimensions) (get-multivalue-info name)
         (let* ((idxtab    (mapcar #'cons indexes idxspec))
                (idxord    (reorder idxtab layout #'caar))
                (idxlist   (mapcan #'get-iter-spec idxord))
                (idxvars   (mapcar #'get-index-var idxspec))
-               (with      (convert-letv-exprs-auto in-with))
-               (full-expr (wrap-with-let with
-                              `(setf (iref ,name ,@idxvars) ,expr))))
+               (with      (convert-letv-exprs-auto in-with)))
             (multiple-value-bind
-                    (loop-expr loop-list range-list replace-tbl)
-                    (wrap-idxloops name indexes idxlist
-                        (list full-expr) :min-layer 0)
-                (values
-                    (make-compute-carry carrying loop-expr loop-list range-list with replace-tbl)
-                    loop-list range-list)))))
+                    (range-list replace-tbl)
+                    (build-loop-list name indexes idxlist)
+                ;; Don't cluster unless the last loop is ordered
+                (unless (and cluster-cache range-list
+                        (ranging-order-flag (car (last range-list))))
+                    (setf cluster-cache nil))
+                ;; Apply clustering (alters ranges)
+                (multiple-value-bind
+                        (range-list in-with cluster-loop cluster-syms)
+                        (make-cluster-refs
+                            range-list cluster-cache replace-tbl with)
+                    ;; Set the level tags
+                    (correct-loop-levels range-list 0)
+                    ;; Create actual loops
+                    (multiple-value-bind
+                            (loop-expr loop-list)
+                            (do-wrap-loops
+                                (list
+                                    (wrap-with-let in-with
+                                        `(setf (iref ,name ,@idxvars) ,expr)))
+                                range-list replace-tbl)
+                        ;; Apply carry
+                        (let* ((carry-expr
+                                   (make-compute-carry
+                                       carrying loop-expr loop-list
+                                       range-list with in-with replace-tbl))
+                               (loop-cnt (length loop-list))
+                               (pre-last-loop (if (> loop-cnt 1)
+                                                  (nth (- loop-cnt 2) loop-list))))
+                            ;; Insert the cluster precalculation loop
+                            (when cluster-loop
+                                (if pre-last-loop
+                                    (prepend-loop-item pre-last-loop cluster-loop)
+                                    (setf carry-expr `(progn ,cluster-loop ,carry-expr))))
+                            (values
+                                (wrap-symbol-macrolet cluster-syms carry-expr)
+                                loop-list range-list))))))))
 
-(defmacro compute (&whole original name idxspec expr &key with carrying parallel)
+(defmacro compute (&whole original name idxspec expr &key with carrying parallel cluster-cache)
     (let* ((*current-compute* original)
            (*consistency-checks* (make-hash-table :test #'equal)))
         (multiple-value-bind
                 (loop-expr loop-list range-list)
-                (make-compute-loops name idxspec expr with carrying)
+                (make-compute-loops name idxspec expr with carrying cluster-cache)
             (let* ((nolet-expr (expand-let loop-expr))
                    (noiref-expr (simplify-iref nolet-expr))
                    (check-expr  (insert-checks noiref-expr))
