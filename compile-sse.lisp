@@ -58,7 +58,7 @@
                    '+ '- '* '/ 'mod 'rem 'floor 'ceiling 'truncate
                    'and 'or 'if 'progn
                    'sin 'cos 'exp 'expt
-                   '> '< '>= '<= '/= '= 'setf 'loop-range) tail)
+                   '> '< '>= '<= '/= '= 'min 'max 'setf 'loop-range) tail)
             (cons-save-old expr (car expr)
                 (mapcar-save-old #'expand-macros tail)))
         (`(,(as op (or 'let 'let* 'symbol-macrolet)) ,vars ,@body)
@@ -231,7 +231,7 @@
                              (write-string "_mm_div_ps(_mm_set1_ps(1.0)," out)
                              (compile-form-float out x)
                              (write-string ")" out))
-                         (`(,(as op (or '+ '- '* '/
+                         (`(,(as op (or '+ '- '* '/ 'max 'min
                                         'and 'or '> '< '>= '<= '/= '=)) ,a ,b)
                              (write-string (case op
                                         (+ "_mm_add_ps")
@@ -245,7 +245,9 @@
                                         (/= "_mm_cmpneq_ps")
                                         (= "_mm_cmpeq_ps")
                                         (and "_mm_and_ps")
-                                        (or "_mm_or_ps"))
+                                        (or "_mm_or_ps")
+                                        (max "_mm_max_ps")
+                                        (min "_mm_min_ps"))
                                  out)
                              (write-string "(" out)
                              (compile-form-float out a)
@@ -487,6 +489,19 @@
                              (write-string "(" out)
                              (compile-form out a)
                              (write-string ")" out))
+
+                         (`(,(as op (or 'max 'min)) ,a ,b)
+                             (write-string "(((" out)
+                             (compile-form out a)
+                             (write-string ")" out)
+                             (write-string (if (eql op 'min) "<" ">") out)
+                             (write-string "(" out)
+                             (compile-form out b)
+                             (write-string "))?(" out)
+                             (compile-form out a)
+                             (write-string "):(" out)
+                             (compile-form out b)
+                             (write-string "))" out))
 
                          ;; This is actually incorrect, because integer division
                          ;; in C is equivalent to truncate, but we use them only

@@ -31,7 +31,8 @@
                     (`(,(or 'aref 'iref) ,arr ,@indices)
                         (mark-list (list arr) 'array)
                         (mark-list indices 'integer))
-                    (`(,(or '+ '- '* '/ 'mod 'rem 'floor 'ceiling 'truncate 'setf '_grp) ,@rest)
+                    (`(,(or '+ '- '* '/ 'mod 'rem 'min 'max
+                            'floor 'ceiling 'truncate 'setf '_grp) ,@rest)
                         (mark-list rest type))
                     (`(,(or 'and 'or) ,@rest)
                         (mark-list rest 'boolean))
@@ -111,7 +112,7 @@
                             'array))
                     (`(setf ,target ,src)
                         (merge-types (list target src)))
-                    (`(,(or '+ '- '* '/ 'floor 'ceiling '_grp) ,@rest)
+                    (`(,(or '+ '- '* '/ 'min 'max 'floor 'ceiling '_grp) ,@rest)
                         (merge-types rest))
                     (`(,(or 'mod 'rem 'truncate) ,@rest)
                         (dolist (arg rest) (get-bottom-type arg))
