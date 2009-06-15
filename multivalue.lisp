@@ -181,8 +181,6 @@
         (formula:enable-expr-quotes)
         (setf formula:*index-access-symbol* 'iref)))
 
-(defparameter *layer* nil)
-
 (defun get-num-step (step)
     (match step
         (`(* ,x) x)
@@ -212,7 +210,7 @@
                    (var-range `(ranging ,var
                                    ,line-min
                                    ,(simplify-index `(- (- ,dimension ,line-max) 1))
-                                   ,line-step ,(get-ord-step step) ,*layer*)))
+                                   ,line-step ,(get-ord-step step) nil)))
                 (unless (and (integerp band-step) (integerp line-step)
                              (= (mod bands band-step) 0))
                     (error "~A: step ~A does not match band count ~A"
@@ -232,24 +230,24 @@
                     (let* ((band-value (if (> one-step 0) band-min
                                            (- (- bands band-max) 1)))
                            (expr `(+ (* (+ (* ,var-range ,bands) ,band-value) ,by) ,minv)))
-                        (list var expr var-range))
+                        (values (cons var expr) (list var-range)))
                     (let* ((band-var    (gensym (symbol-name var)))
                            (band-range `(ranging ,band-var
                                             ,band-min ,(- (- bands band-max) 1)
                                             ,band-step ,band-step
-                                            ,(if *layer* (1+ *layer*))))
+                                            nil))
                            (expr `(+ (* (+ (* ,var-range ,bands) ,band-range) ,by) ,minv)))
                         (setf (get band-var 'band-master) var)
-                        (list var expr band-range var-range))))
+                        (values (cons var expr) (list band-range var-range)))))
             ;; Single band
             (let* ((dimension (car (index-dimension item)))
                    (num-step  (get-num-step step))
                    (var-range `(ranging ,var
                                    ,skip-low
                                    ,(simplify-index `(- (- ,dimension ,skip-high) 1))
-                                   ,num-step ,(get-ord-step step) ,*layer*))
+                                   ,num-step ,(get-ord-step step) nil))
                    (expr `(+ (* ,var-range ,by) ,minv)))
-                (list var expr var-range)))))
+                (values (cons var expr) (list var-range))))))
 
 (defun apply-index-iterexpr (name indexes item)
     (let* ((wrap  (if (atom item) (list item) item))
@@ -261,17 +259,23 @@
             (error "Unknown index '~A' for multivalue ~A: ~A" (car wrap2) name item))
         (apply #'index-iterexpr idxobj wrap2)))
 
+(defun correct-loop-levels (range-list min-layer)
+    (dolist (range (reverse range-list))
+        (setf (seventh range) min-layer)
+        (incf min-layer))
+    (values range-list min-layer))
+
 (defun build-loop-list (name indexes idxlist &key min-layer)
     (let ((replace-tbl nil)
-          (loop-lst    nil)
-          (*layer*     min-layer))
+          (loop-lst    nil))
         (dolist (item (reverse idxlist))
-            (let ((ie (apply-index-iterexpr name indexes item)))
-                (push (cons (first ie) (second ie)) replace-tbl)
-                (setf loop-lst
-                    (concatenate 'list (cddr ie) loop-lst))
-                (when *layer*
-                    (incf *layer* (length (cddr ie))))))
+            (multiple-value-bind
+                    (pair ranges)
+                    (apply-index-iterexpr name indexes item)
+                (push pair replace-tbl)
+                (setf loop-lst (nconc ranges loop-lst))))
+        (when min-layer
+            (correct-loop-levels loop-lst min-layer))
         (values loop-lst replace-tbl)))
 
 (defmacro loop-range (rangespec &body code)
