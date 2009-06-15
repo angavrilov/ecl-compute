@@ -122,17 +122,12 @@
         (values indexes layout dimensions)))
 
 (defun check-dimension (expr dim verbose-p)
-    (let* ((range (match (compute-range expr)
-                      ((type number val)
-                          (cons val val))
-                      (`(ranging ,_ ,min ,max ,@_)
-                          (cons min max))
-                      (_ (when verbose-p
-                             (format t "Cannot determine range for: ~A~%" expr))
-                          nil)))
+    (let* ((range (compute-any-range expr))
            (min-val (car range))
            (max-val (cdr range))
            (checks  nil))
+        (when (and (null range) verbose-p)
+            (format t "Cannot determine range for: ~A~%" expr))
         (case (compare-indexes (or min-val expr) 0)
             (<
                 (error "Index ~A can be less than the 0 limit" expr))

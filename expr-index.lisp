@@ -25,15 +25,53 @@
         (t
             expr)))
 
+(defun compute-range-ranging (expr prev-expr)
+    (if (equal expr prev-expr)
+        expr
+        (compute-range-ranging
+            (match expr
+                ((when (or (get smin 'full-expr)
+                           (get smax 'full-expr))
+                    `(ranging ,arg ,(type symbol smin) ,(type symbol smax) ,@rest))
+                    `(ranging ,arg
+                         ,(get-full-expr smin)
+                         ,(get-full-expr smax)
+                         ,@rest))
+                (`(ranging ,arg (ranging ,_ ,minv ,@_) ,maxv ,@rest)
+                    `(ranging ,arg ,minv ,maxv ,@rest))
+                (`(ranging ,arg ,minv (ranging ,_ ,_ ,maxv ,@_) ,@rest)
+                    `(ranging ,arg ,minv ,maxv ,@rest))
+                (`(ranging ,arg (max ,smin1 ,smin2) ,maxv ,@rest)
+                    (let* ((range1 (compute-any-range smin1))
+                           (range2 (compute-any-range smin2))
+                           (rval
+                               (case
+                                   (compare-indexes
+                                       (or (car range1) smin1)
+                                       (or (car range2) smin2))
+                                   ((> =) smin1)
+                                   (< smin2)
+                                   (t (third expr)))))
+                        `(ranging ,arg ,rval ,maxv ,@rest)))
+                (`(ranging ,arg ,minv (min ,smax1 ,smax2) ,@rest)
+                    (let* ((range1 (compute-any-range smax1))
+                           (range2 (compute-any-range smax2))
+                           (rval
+                               (case
+                                   (compare-indexes
+                                       (or (cdr range1) smax1)
+                                       (or (cdr range2) smax2))
+                                   ((< =) smax1)
+                                   (> smax2)
+                                   (t (fourth expr)))))
+                        `(ranging ,arg ,minv ,rval ,@rest)))
+                (_ expr))
+            expr)))
+
 (defun compute-range-1 (expr &optional (old-expr expr))
     (match expr
-        ((when (or (get smin 'full-expr)
-                   (get smax 'full-expr))
-            `(ranging ,arg ,(type symbol smin) ,(type symbol smax) ,@rest))
-            `(ranging ,arg
-                 ,(get-full-expr smin)
-                 ,(get-full-expr smax)
-                 ,@rest))
+        (`(ranging ,@_)
+            (compute-range-ranging (simplify-index expr) nil))
         (`(- (ranging ,arg ,min ,max ,delta ,@rest))
             `(ranging (- ,arg) (- ,max) (- ,min) (- ,delta) ,@rest))
         (`(,(as op (or '+ '-))
@@ -269,4 +307,12 @@
             (cons val val))
         (`(ranging ,_ ,(type number min) ,(type number max) ,@_)
             (cons min max))
+        (_ nil)))
+
+(defun compute-any-range (expr)
+    (match (compute-range expr)
+        ((type number val)
+            (cons val val))
+        (`(ranging ,_ ,minv ,maxv ,@_)
+            (cons minv maxv))
         (_ nil)))
