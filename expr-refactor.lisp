@@ -67,13 +67,13 @@
                       (_ (list expr))))
             code)))
 
-(defmacro letv (exprs &body blk)
+(defun convert-letv-exprs (exprs &key pull-last)
     (let* ((elst (if (and (consp exprs) (eql (car exprs) 'progn))
                      (cdr exprs)
                      (list exprs)))
            (nonull (remove-if-not #'identity elst))
-           (body   (if blk blk (last nonull)))
-           (noblk  (if blk nonull (butlast nonull)))
+           (body   (if pull-last (last nonull) nil))
+           (noblk  (if pull-last (butlast nonull) nonull))
            (items  (mapcar
                         #'(lambda (expr)
                             (match expr
@@ -82,9 +82,26 @@
                                 (_
                                     (error "letv: invalid expression ~A" expr))))
                         noblk)))
+        (values items body)))
+
+(defun convert-letv-exprs-auto (exprs)
+    (if (or (eql (car exprs) 'progn)
+            (eql (car exprs) 'setf))
+        (convert-letv-exprs exprs)
+        exprs))
+
+(defmacro letv (exprs &body blk)
+    (multiple-value-bind
+            (items body)
+            (convert-letv-exprs exprs :pull-last (null blk))
         (if items
-            `(let* ,items ,@body)
-            body)))
+            `(let* ,items ,@(or blk body))
+            (wrap-progn (or blk body)))))
+
+(defun wrap-with-let (with expr)
+    (if with
+        `(let* ,(convert-letv-exprs-auto with) ,expr)
+        expr))
 
 (defun apply-hash-change (table vals)
     (mapcar #'(lambda (assn)

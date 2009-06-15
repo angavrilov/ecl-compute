@@ -132,14 +132,6 @@
             `(safety-check ,checks ,new-expr)
             new-expr)))
 
-(defun wrap-with-let (with expr)
-    (if with
-        (if (or (eql (car with) 'progn)
-                (eql (car with) 'setf))
-            `(letv ,with ,expr)
-            `(let* ,with ,expr))
-        expr))
-
 (defun wrap-compute-parallel (parallel loop-list code &optional (gen-func #'identity))
     (if (null parallel)
         (funcall gen-func code)
@@ -250,13 +242,14 @@
             loop-expr
             `(symbol-macrolet ,carry-table ,@(cddr carry-body)))))
 
-(defun make-compute-loops (name idxspec expr with carrying)
+(defun make-compute-loops (name idxspec expr in-with carrying)
     (multiple-value-bind
             (indexes layout dimensions) (get-multivalue-info name)
         (let* ((idxtab    (mapcar #'cons indexes idxspec))
                (idxord    (reorder idxtab layout #'caar))
                (idxlist   (mapcan #'get-iter-spec idxord))
                (idxvars   (mapcar #'get-index-var idxspec))
+               (with      (convert-letv-exprs-auto in-with))
                (full-expr (wrap-with-let with
                               `(setf (iref ,name ,@idxvars) ,expr))))
             (multiple-value-bind
