@@ -174,6 +174,14 @@
         ((null b) a)
         (t (min a b))))
 
+(defun temporary-level (expr)
+    (match expr
+        (`(ptr+ ,ptr ,@_)
+            (temporary-level ptr))
+        (`(temporary ,_ ,_ ,level ,@_)
+            level)
+        (_ nil)))
+
 (defun min-loop-level (expr)
     (use-cache (expr *minlevel-cache*)
         (match expr
@@ -181,10 +189,17 @@
                 nil)
             (`(ranging ,@_)
                 (ranging-loop-level expr))
-            (`(tmp-ref (temporary ,_ ,_ ,level ,@_) ,@args)
+            (`(temporary ,@_)
+                nil)
+            (`(tmp-ref ,tmp ,@args)
                 (reduce #'min-level
                     (mapcar #'min-loop-level args)
-                    :initial-value level))
+                    :initial-value
+                        (temporary-level tmp)))
+            (`(ptr-deref ,ptr)
+                (min-level
+                    (min-loop-level ptr)
+                    (temporary-level ptr)))
             (_
                 (reduce #'min-level
                     (mapcar #'min-loop-level expr))))))
@@ -288,9 +303,11 @@
         (`(quote ,@_) expr)
         (`(loop-range ,range ,@body)
             (let* ((level (ranging-loop-level range))
-                   (vlist (cons nil var-list))
+                   (level-gap (if cur-level (- cur-level level 1) 0))
+                   (pad-list (loop for i from 1 to level-gap collect nil))
+                   (vlist (cons nil (nconc pad-list var-list)))
                    (nbody (factor-vars-rec body fct-table level vlist nil-list)))
-                (unless (or (null cur-level) (= level (1- cur-level)))
+                (unless (or (null cur-level) (< level cur-level))
                     (error "Invalid loop nesting: ~A at level ~A" expr cur-level))
                 ;; Factor the loop range args
                 (setf (third range)
@@ -303,6 +320,11 @@
                               (get (first subs) 'full-expr)
                               fct-table)
                         t))
+                ;; Verify that the gap is empty
+                (loop for i from 1 to level-gap
+                 do (unless (null (nth i vlist))
+                        (error "Invalid loop nesting: ~A of level ~A in gap ~A to ~A"
+                            (nth i vlist) (+ level i) level cur-level)))
                 ;; Wrap with let if needed
                 (if (car vlist)
                     `(loop-range ,range (let* ,(nreverse (car vlist)) ,@nbody))
