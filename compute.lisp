@@ -231,6 +231,25 @@
         ;; Return the new names
         name-table))
 
+(defun make-compute-carry (carrying loop-expr loop-list range-list with replace-tbl)
+    (let* ((carry-indices (if carrying
+                              (reduce #'nunion
+                                  (mapcar #'list
+                                      (mapcar #'first
+                                          carrying)))))
+           (carry-body `(progn nil ,loop-expr))
+           (carry-table
+               (mapcan
+                   #'(lambda (idx)
+                         (create-carry
+                             idx carrying range-list
+                             (cons carry-body loop-list)
+                             with replace-tbl))
+                   carry-indices)))
+        (if (null carry-table)
+            loop-expr
+            `(symbol-macrolet ,carry-table ,@(cddr carry-body)))))
+
 (defun make-compute-loops (name idxspec expr with carrying)
     (multiple-value-bind
             (indexes layout dimensions) (get-multivalue-info name)
@@ -244,25 +263,9 @@
                     (loop-expr loop-list range-list replace-tbl)
                     (wrap-idxloops name indexes idxlist
                         (list full-expr) :min-layer 0)
-                (let* ((carry-indices (if carrying
-                                          (reduce #'nunion
-                                              (mapcar #'list
-                                                  (mapcar #'first
-                                                      carrying)))))
-                       (carry-body `(progn nil ,loop-expr))
-                       (carry-table
-                           (mapcan
-                               #'(lambda (idx)
-                                     (create-carry
-                                         idx carrying range-list
-                                         (cons carry-body loop-list)
-                                         with replace-tbl))
-                               carry-indices)))
                 (values
-                    (if (null carry-table)
-                        loop-expr
-                        `(symbol-macrolet ,carry-table ,@(cddr carry-body)))
-                    loop-list range-list))))))
+                    (make-compute-carry carrying loop-expr loop-list range-list with replace-tbl)
+                    loop-list range-list)))))
 
 (defmacro compute (&whole original name idxspec expr &key with carrying parallel)
     (let* ((*current-compute* original)
