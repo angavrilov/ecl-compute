@@ -697,7 +697,7 @@
                          :void ,(concatenate 'string checks code)))))))
 
 (define-compiler-macro compute (&whole original name idxspec expr
-                                   &key with carrying parallel cluster-cache)
+                                   &key with where carrying parallel cluster-cache)
     (handler-bind ((condition
                        #'(lambda (cond)
                              (format t "~%Fast C compilation failed:~%   ~A~%" cond)
@@ -707,7 +707,7 @@
                (*consistency-checks* (make-hash-table :test #'equal)))
             (multiple-value-bind
                     (loop-expr loop-list range-list)
-                    (make-compute-loops name idxspec expr with carrying cluster-cache)
+                    (make-compute-loops name idxspec expr with where carrying cluster-cache)
                 (let* ((nomacro-expr (expand-macros loop-expr))
                        (nolet-expr   (expand-let nomacro-expr))
                        (noiref-expr (simplify-iref nolet-expr))

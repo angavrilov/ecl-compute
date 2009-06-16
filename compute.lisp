@@ -331,14 +331,16 @@
             (setf (seventh cache-index) 0) ;level
             (values range-list in-with calc-loop symtbl))))
 
-(defun make-compute-loops (name idxspec expr in-with carrying cluster-cache)
+(defun make-compute-loops (name idxspec expr with-arg where-arg carrying cluster-cache)
     (multiple-value-bind
             (indexes layout dimensions) (get-multivalue-info name)
         (let* ((idxtab    (mapcar #'cons indexes idxspec))
                (idxord    (reorder idxtab layout #'caar))
                (idxlist   (mapcan #'get-iter-spec idxord))
                (idxvars   (mapcar #'get-index-var idxspec))
-               (with      (convert-letv-exprs-auto in-with)))
+               (with      (append
+                              (convert-letv-exprs-auto where-arg)
+                              (convert-letv-exprs-auto with-arg))))
             (multiple-value-bind
                     (range-list replace-tbl)
                     (build-loop-list name indexes idxlist)
@@ -378,12 +380,12 @@
                                 (wrap-symbol-macrolet cluster-syms carry-expr)
                                 loop-list range-list))))))))
 
-(defmacro compute (&whole original name idxspec expr &key with carrying parallel cluster-cache)
+(defmacro compute (&whole original name idxspec expr &key with where carrying parallel cluster-cache)
     (let* ((*current-compute* original)
            (*consistency-checks* (make-hash-table :test #'equal)))
         (multiple-value-bind
                 (loop-expr loop-list range-list)
-                (make-compute-loops name idxspec expr with carrying cluster-cache)
+                (make-compute-loops name idxspec expr with where carrying cluster-cache)
             (let* ((nolet-expr (expand-let loop-expr))
                    (noiref-expr (simplify-iref nolet-expr))
                    (check-expr  (insert-checks noiref-expr))
