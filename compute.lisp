@@ -206,7 +206,7 @@
                                         (mapcar
                                             #'(lambda (iexpr)
                                                   `(setf ,(second iexpr)
-                                                         ,(third iexpr)))
+                                                         ,(or (fourth iexpr) 0.0)))
                                             carry-list))))
                           iranges replace-tbl))
            (alter-code  (replace-unquoted
@@ -215,7 +215,7 @@
                                     (mapcar
                                         #'(lambda (iexpr)
                                               `(setf ,(second iexpr)
-                                                     ,(fourth iexpr)))
+                                                     ,(third iexpr)))
                                         carry-list)))
                             replace-tbl))
            (name-table (mapcar
