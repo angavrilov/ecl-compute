@@ -53,6 +53,17 @@
                    (replace-unquoted (car expr) replace-tbl)
                    (replace-unquoted (cdr expr) replace-tbl))))))
 
+(defun subst-save-old (new old expr)
+    (cond
+        ((eql expr old)
+            new)
+        ((atom expr)
+            expr)
+        (t
+            (cons-save-old expr
+                (subst-save-old new old (car expr))
+                (subst-save-old new old (cdr expr))))))
+
 (defun wrap-progn (code)
     (if (cdr code) `(progn ,@code) (car code)))
 

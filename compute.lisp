@@ -152,7 +152,7 @@
     (if (null dims)
         0.0
         `(the (array single-float)
-             (make-array ,dims
+             (make-array (list ,@dims)
                  :element-type 'single-float
                  :initial-element 0.0))))
 
@@ -320,7 +320,7 @@
                                            #'(lambda (name symdef)
                                                  `(setf ,(first symdef) ,name))
                                            vars symtbl)))
-                            (subst cache-index index replace-tbl))))
+                            (subst-save-old cache-index index replace-tbl))))
                ;; Build a with map with vars replaced with temp refs
                (in-with (append
                             reftbl
