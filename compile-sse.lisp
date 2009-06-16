@@ -20,17 +20,22 @@
                                 idxvals (nreverse stride-lst)))
                    (ofs-expr (simplify-rec-once #'flatten-exprs-1 `(+ ,@ofs-lst)))
                    (ofs-items (match ofs-expr (`(+ ,@rest) rest) (x (list x))))
-                   (levels   (remove-duplicates
-                                 (mapcar #'min-loop-level ofs-items)))
+                   (num-ofs-items (remove-if-not #'numberp ofs-items))
+                   (var-ofs-items (remove-if #'numberp ofs-items))
+                   (levels   (sort
+                                 (remove-duplicates
+                                     (mapcar #'min-loop-level var-ofs-items))
+                                 #'level>))
                    (ofs-groups (mapcar
                                    #'(lambda (lvl)
                                          (simplify-rec-once #'treeify-1
-                                             `(+ ,@(remove lvl ofs-items
+                                             `(+ ,@(remove lvl var-ofs-items
                                                        :test-not #'eql :key #'min-loop-level))))
-                                    (sort levels #'level>))))
+                                    levels)))
                 `(ptr-deref
                      ,(reduce #'(lambda (base ofs) `(ptr+ ,base ,ofs))
-                            ofs-groups :initial-value `(arr-ptr ,name)))))
+                          (nconc ofs-groups num-ofs-items)
+                          :initial-value `(arr-ptr ,name)))))
         (`(tmp-ref ,name)
             nil)
         (`(tmp-ref ,name ,@idxvals)
@@ -143,6 +148,8 @@
                                  (if (eql level 0)
                                      (is-level0-ptr (unwrap-factored sym))
                                      nil)))
+                         ((type number num)
+                             nil)
                          (`(ranging ,v ,@_)
                              (eql (ranging-loop-level form) 0))
                          (`(ptr+ ,ptr ,ofs)
@@ -167,6 +174,8 @@
                                      (compile-form-ptr out
                                          (unwrap-factored sym))
                                      (write-string (ref-symbol sym) out))))
+                         ((type number num)
+                             (format out "~A" num))
                          (`(ranging ,v ,@_)
                              (write-string (symbol-name v) out))
                          (`(ptr+ ,ptr ,ofs)
