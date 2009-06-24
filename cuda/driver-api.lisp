@@ -5,8 +5,10 @@
     (:use "COMMON-LISP")
     (:export
         "*DEVICE-COUNT*" "GET-CAPS"
-        "*CURRENT-CONTEXT*" "CONTEXT-POINTER"
+        "*CURRENT-CONTEXT*"
         "CREATE-CONTEXT" "DESTROY-CONTEXT"
+        "CREATE-LINEAR-BUFFER" "DESTROY-LINEAR-BUFFER"
+        "LINEAR-SIZE" "LINEAR-PITCH" "LINEAR-PITCHED-P"
     ))
 
 (in-package cuda)
@@ -206,3 +208,60 @@ static void check_error(CUresult err) {
                    }")))
         (ext:set-finalizer context #'destroy-context)
         (setf *current-context* context)))
+
+(ffi:def-struct linear-buffer
+    (width :unsigned-int)
+    (height :unsigned-int)
+    (pitch :unsigned-int)
+    (device-ptr :unsigned-int))
+
+(ffi:clines "
+    typedef struct {
+        unsigned width;
+        unsigned height;
+        unsigned pitch;
+        CUdeviceptr device_ptr;
+    } LinearBuffer;
+")
+
+(defun destroy-linear-buffer (buffer)
+    (check-ffi-type buffer linear-buffer)
+    (ffi:c-inline (buffer) (:object) :void "{
+            LinearBuffer *pbuf = ecl_foreign_data_pointer_safe(#0);
+            if (pbuf->device_ptr)
+                check_error(cuMemFree(pbuf->device_ptr));
+            pbuf->device_ptr = NULL;
+        }"))
+
+(defun create-linear-buffer (width &optional (height 1) &key pitched)
+    (let* ((buffer
+               (ffi:c-inline
+                   (width height (or pitched 0) 'linear-buffer)
+                   (:int :int :int :object)
+                   :object "{
+                       cl_object buf = ecl_allocate_foreign_data(#3,sizeof(LinearBuffer));
+                       LinearBuffer *pbuf = buf->foreign.data;
+                       pbuf->width = #0;
+                       pbuf->height = #1;
+                       if (#2 > 0) {
+                           check_error(cuMemAllocPitch(&pbuf->device_ptr, &pbuf->pitch,
+                                                       pbuf->width, pbuf->height, #2));
+                       } else {
+                           pbuf->pitch = pbuf->width;
+                           check_error(cuMemAlloc(&pbuf->device_ptr, pbuf->width*pbuf->height));
+                       }
+                       @(return) = buf;
+                   }")))
+        (ext:set-finalizer buffer #'destroy-linear-buffer)
+        buffer))
+
+(defun linear-size (buffer)
+    (* (ffi:get-slot-value buffer 'linear-buffer 'pitch)
+       (ffi:get-slot-value buffer 'linear-buffer 'height)))
+
+(defun linear-pitch (buffer)
+    (ffi:get-slot-value buffer 'linear-buffer 'pitch))
+
+(defun linear-pitched-p (buffer)
+    (/= (ffi:get-slot-value buffer 'linear-buffer 'pitch)
+        (ffi:get-slot-value buffer 'linear-buffer 'width)))
