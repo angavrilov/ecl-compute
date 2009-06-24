@@ -110,10 +110,11 @@ static void check_error(CUresult err) {
         (ffi:c-inline (device) (:int)
             (values :object :object :int :int :int :int :int :int :int :int :int :int :int)
          "int major, minor, tmp;
+          CUdevprop props;
           int dev = #0;
           char name[256];
 
-       	  check_error(cuDeviceComputeCapability(&major, &minor, dev));
+          check_error(cuDeviceComputeCapability(&major, &minor, dev));
           @(return 0) = ecl_cons(ecl_make_integer(major), ecl_make_integer(minor));
 
           check_error(cuDeviceGetName(name, 256, dev));
@@ -125,23 +126,13 @@ static void check_error(CUresult err) {
           check_error(cuDeviceGetAttribute(&tmp, CU_DEVICE_ATTRIBUTE_MULTIPROCESSOR_COUNT, dev));
           @(return 3) = tmp;
 
-          check_error(cuDeviceGetAttribute(&tmp, CU_DEVICE_ATTRIBUTE_TOTAL_CONSTANT_MEMORY, dev));
-          @(return 4) = tmp;
-
-          check_error(cuDeviceGetAttribute(&tmp, CU_DEVICE_ATTRIBUTE_MAX_SHARED_MEMORY_PER_BLOCK, dev));
-          @(return 5) = tmp;
-
-          check_error(cuDeviceGetAttribute(&tmp, CU_DEVICE_ATTRIBUTE_MAX_REGISTERS_PER_BLOCK, dev));
-          @(return 6) = tmp;
-
-          check_error(cuDeviceGetAttribute(&tmp, CU_DEVICE_ATTRIBUTE_WARP_SIZE, dev));
-          @(return 7) = tmp;
-
-          check_error(cuDeviceGetAttribute(&tmp, CU_DEVICE_ATTRIBUTE_MAX_THREADS_PER_BLOCK, dev));
-          @(return 8) = tmp;
-
-          check_error(cuDeviceGetAttribute(&tmp, CU_DEVICE_ATTRIBUTE_TEXTURE_ALIGNMENT, dev));
-          @(return 9) = tmp;
+          check_error(cuDeviceGetProperties(&props, dev));
+          @(return 4) = props.totalConstantMemory;
+          @(return 5) = props.sharedMemPerBlock;
+          @(return 6) = props.regsPerBlock;
+          @(return 7) = props.SIMDWidth;
+          @(return 8) = props.maxThreadsPerBlock;
+          @(return 9) = props.textureAlign;
 
           check_error(cuDeviceGetAttribute(&tmp, CU_DEVICE_ATTRIBUTE_GPU_OVERLAP, dev));
           @(return 10) = tmp;
@@ -157,3 +148,35 @@ static void check_error(CUresult err) {
             :warp-size warp-size :tex-alignment tex-alignment :has-overlap (/= 0 has-overlap)
             :has-mapping (/= 0 has-mapping) :has-timeout (/= 0 has-timeout) :max-threads max-threads)))
 
+(defun cuda-destroy-context (context)
+    (ffi:c-inline (context) (:object) :void "{
+            CUcontext ctx = ecl_foreign_data_pointer_safe(#0);
+            if (ctx)
+                check_error(cuCtxDestroy(ctx));
+            (#0)->foreign.data = NULL;
+        }"))
+
+(defvar *cuda-context* nil)
+
+(defun cuda-create-context (device &key sync-mode with-mapping)
+    (let* ((map-flag (if with-mapping 1 0))
+           (sync-flag (case sync-mode
+                         ((nil) 0) (:auto 0) (:spin 1) (:yield 2) (:block 3)
+                         (t (error "Invalid sync mode: ~A" sync-mode))))
+           (context
+               (ffi:c-inline (device map-flag sync-flag) (:int :int :int) :object "{
+                       CUcontext ctx;
+                       int flags = 0, dev = #0;
+                       if (#1)
+                           flags |= CU_CTX_MAP_HOST;
+                       switch (#2) {
+                       case 0: flags |= CU_CTX_SCHED_AUTO; break;
+                       case 1: flags |= CU_CTX_SCHED_SPIN; break;
+                       case 2: flags |= CU_CTX_SCHED_YIELD; break;
+                       case 3: flags |= CU_CTX_BLOCKING_SYNC; break;
+                       }
+                       check_error(cuCtxCreate(&ctx, flags, dev));
+                       @(return) = ecl_make_foreign_data(Cnil, 0, ctx);
+                   }")))
+        (ext:set-finalizer context #'cuda-destroy-context)
+        (setf *cuda-context* context)))
