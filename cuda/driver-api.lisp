@@ -1,3 +1,16 @@
+;;;; kate: indent-width 4; replace-tabs yes; space-indent on;
+
+(defpackage cuda
+    (:documentation "Interface to the NVidia CUDA driver")
+    (:use "COMMON-LISP")
+    (:export
+        "*DEVICE-COUNT*" "GET-CAPS"
+        "*CURRENT-CONTEXT*" "CONTEXT-POINTER"
+        "CREATE-CONTEXT" "DESTROY-CONTEXT"
+    ))
+
+(in-package cuda)
+
 (ffi:clines "
 
 #include <stdio.h>
@@ -83,10 +96,10 @@ static void check_error(CUresult err) {
     }
 }")
 
-(defvar *cuda-device-count* nil)
+(defvar *device-count* nil)
 
-(unless *cuda-device-count*
-    (setf *cuda-device-count*
+(unless *device-count*
+    (setf *device-count*
         (ffi:c-inline () () :int "
             int major, minor, count;
 
@@ -99,11 +112,11 @@ static void check_error(CUresult err) {
             }
             @(return) = count;")))
 
-(defstruct cuda-caps
+(defstruct capabilities
     revision name memory mp-count const-memory shared-memory reg-count warp-size
     max-threads tex-alignment has-overlap has-mapping has-timeout)
 
-(defun cuda-get-caps (device)
+(defun get-caps (device)
     (multiple-value-bind
         (revision name memory mp-count const-memory shared-memory reg-count warp-size
          max-threads tex-alignment has-overlap has-timeout has-mapping)
@@ -142,13 +155,23 @@ static void check_error(CUresult err) {
 
           check_error(cuDeviceGetAttribute(&tmp, CU_DEVICE_ATTRIBUTE_CAN_MAP_HOST_MEMORY, dev));
           @(return 12) = tmp;")
-        (make-cuda-caps
+        (make-capabilities
             :revision revision :name name :memory memory :mp-count mp-count
             :const-memory const-memory :shared-memory shared-memory :reg-count reg-count
             :warp-size warp-size :tex-alignment tex-alignment :has-overlap (/= 0 has-overlap)
             :has-mapping (/= 0 has-mapping) :has-timeout (/= 0 has-timeout) :max-threads max-threads)))
 
-(defun cuda-destroy-context (context)
+(ffi:def-foreign-type context-pointer :void)
+
+(defmacro check-ffi-type (var typespec)
+    `(progn
+         (check-type ,var si:foreign-data)
+         (assert (eql (si:foreign-data-tag ,var) ',typespec)
+             (,var)
+             "Type mismatch: ~A is not a wrapped foreign ~A" ,var ',typespec)))
+
+(defun destroy-context (context)
+    (check-ffi-type context context-pointer)
     (ffi:c-inline (context) (:object) :void "{
             CUcontext ctx = ecl_foreign_data_pointer_safe(#0);
             if (ctx)
@@ -156,15 +179,18 @@ static void check_error(CUresult err) {
             (#0)->foreign.data = NULL;
         }"))
 
-(defvar *cuda-context* nil)
+(defvar *current-context* nil)
 
-(defun cuda-create-context (device &key sync-mode with-mapping)
+(defun create-context (device &key sync-mode with-mapping)
     (let* ((map-flag (if with-mapping 1 0))
            (sync-flag (case sync-mode
                          ((nil) 0) (:auto 0) (:spin 1) (:yield 2) (:block 3)
                          (t (error "Invalid sync mode: ~A" sync-mode))))
            (context
-               (ffi:c-inline (device map-flag sync-flag) (:int :int :int) :object "{
+               (ffi:c-inline
+                   (device map-flag sync-flag 'context-pointer)
+                   (:int :int :int :object)
+                   :object "{
                        CUcontext ctx;
                        int flags = 0, dev = #0;
                        if (#1)
@@ -176,7 +202,7 @@ static void check_error(CUresult err) {
                        case 3: flags |= CU_CTX_BLOCKING_SYNC; break;
                        }
                        check_error(cuCtxCreate(&ctx, flags, dev));
-                       @(return) = ecl_make_foreign_data(Cnil, 0, ctx);
+                       @(return) = ecl_make_foreign_data(#3, 0, ctx);
                    }")))
-        (ext:set-finalizer context #'cuda-destroy-context)
-        (setf *cuda-context* context)))
+        (ext:set-finalizer context #'destroy-context)
+        (setf *current-context* context)))
