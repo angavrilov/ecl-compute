@@ -8,7 +8,8 @@
         "*CURRENT-CONTEXT*"
         "CREATE-CONTEXT" "DESTROY-CONTEXT"
         "CREATE-LINEAR-BUFFER" "DESTROY-LINEAR-BUFFER"
-        "LINEAR-SIZE" "LINEAR-PITCH" "LINEAR-PITCHED-P"
+        "LINEAR-SIZE" "LINEAR-EXTENT" "LINEAR-PITCH" "LINEAR-PITCHED-P"
+        "CREATE-LINEAR-FOR-ARRAY" "COPY-LINEAR-FOR-ARRAY"
     ))
 
 (in-package cuda)
@@ -243,7 +244,7 @@ static void check_error(CUresult err) {
                        LinearBuffer *pbuf = buf->foreign.data;
                        pbuf->width = #0;
                        pbuf->height = #1;
-                       if (#2 > 0) {
+                       if (#2 > 0 && pbuf->height > 1) {
                            check_error(cuMemAllocPitch(&pbuf->device_ptr, &pbuf->pitch,
                                                        pbuf->width, pbuf->height, #2));
                        } else {
@@ -256,6 +257,10 @@ static void check_error(CUresult err) {
         buffer))
 
 (defun linear-size (buffer)
+    (* (ffi:get-slot-value buffer 'linear-buffer 'width)
+       (ffi:get-slot-value buffer 'linear-buffer 'height)))
+
+(defun linear-extent (buffer)
     (* (ffi:get-slot-value buffer 'linear-buffer 'pitch)
        (ffi:get-slot-value buffer 'linear-buffer 'height)))
 
@@ -265,3 +270,90 @@ static void check_error(CUresult err) {
 (defun linear-pitched-p (buffer)
     (/= (ffi:get-slot-value buffer 'linear-buffer 'pitch)
         (ffi:get-slot-value buffer 'linear-buffer 'width)))
+
+(defun array-element-size (arr)
+    (let ((tname (array-element-type arr)))
+        (case tname
+           (single-float 4)
+           (double-float 8)
+           (otherwise
+               (error "Unsupported element type: ~A" tname)))))
+
+(defun create-linear-for-array (arr)
+    (let* ((item-size (array-element-size arr))
+           (dims      (reverse (array-dimensions arr)))
+           (width     (* item-size (car dims)))
+           (height    (reduce #'* (cdr dims))))
+        (create-linear-buffer width height :pitched item-size)))
+
+(defun copy-linear-for-array (buffer arr &key from-device)
+    (check-ffi-type buffer linear-buffer)
+    (ffi:c-inline
+        (buffer arr (if from-device 1 0))
+        (:object :object :int)
+        :void "{
+            LinearBuffer *pbuf = ecl_foreign_data_pointer_safe(#0);
+            cl_object arr = #1;
+            void *data;
+            int width,height=1,item,i,download=#2;
+
+            if (!pbuf->device_ptr)
+                FEerror(\"Linear buffer not allocated.\",0);
+
+            switch (ecl_array_elttype(arr)) {
+            case aet_sf: item = 4; break;
+            case aet_df: item = 8; break;
+            default:
+                FEerror(\"Unsupported array element: ~A\",
+                        1, cl_array_element_type(arr));
+            }
+
+            if (VECTORP(arr)) {
+                width = item*arr->vector.dim;
+                data = arr->vector.self.t;
+            } else {
+                width = item*arr->array.dims[arr->array.rank-1];
+                for (i = 0; i < arr->array.rank-1; i++)
+                    height *= arr->array.dims[i];
+                data = arr->array.self.t;
+            }
+
+            if (((pbuf->width != pbuf->pitch) &&
+                 (pbuf->width != width || pbuf->height != height)) ||
+                 (pbuf->width*pbuf->height != width*height))
+                FEerror(\"Incompatible buffer and array dimensions.\",0);
+
+            if (pbuf->width == pbuf->pitch) {
+                if (download)
+                    check_error(cuMemcpyDtoH(data, pbuf->device_ptr, width*height));
+                else
+                    check_error(cuMemcpyHtoD(pbuf->device_ptr, data, width*height));
+            } else {
+                CUDA_MEMCPY2D spec;
+                spec.srcXInBytes = 0;
+                spec.srcY = 0;
+                spec.dstXInBytes = 0;
+                spec.dstY = 0;
+                spec.WidthInBytes = width;
+                spec.Height = height;
+
+                if (download) {
+                    spec.srcPitch = pbuf->pitch;
+                    spec.srcMemoryType = CU_MEMORYTYPE_DEVICE;
+                    spec.srcDevice = pbuf->device_ptr;
+                    spec.dstPitch = width;
+                    spec.dstMemoryType = CU_MEMORYTYPE_HOST;
+                    spec.dstHost = data;
+                } else {
+                    spec.srcPitch = width;
+                    spec.srcMemoryType = CU_MEMORYTYPE_HOST;
+                    spec.srcHost = data;
+                    spec.dstPitch = pbuf->pitch;
+                    spec.dstMemoryType = CU_MEMORYTYPE_DEVICE;
+                    spec.dstDevice = pbuf->device_ptr;
+                }
+
+                check_error(cuMemcpy2D(&spec));
+            }
+        }"))
+
