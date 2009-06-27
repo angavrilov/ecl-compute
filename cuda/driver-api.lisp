@@ -4,10 +4,11 @@
     (:documentation "Interface to the NVidia CUDA driver")
     (:use "COMMON-LISP")
     (:export
-        "*DEVICE-COUNT*" "GET-CAPS"
-        "*CURRENT-CONTEXT*"
+        "+DEVICE-COUNT+" "GET-CAPS"
+        "*CURRENT-CONTEXT*" "VALID-CONTEXT-P"
         "CREATE-CONTEXT" "DESTROY-CONTEXT"
         "CREATE-LINEAR-BUFFER" "DESTROY-LINEAR-BUFFER"
+        "VALID-LINEAR-BUFFER-P"
         "LINEAR-SIZE" "LINEAR-EXTENT" "LINEAR-PITCH" "LINEAR-PITCHED-P"
         "CREATE-LINEAR-FOR-ARRAY" "COPY-LINEAR-FOR-ARRAY"
         "KERNEL"
@@ -106,7 +107,17 @@
              (,var)
              "Type mismatch: ~A is not a wrapped foreign ~A" ,var ',typespec)))
 
-(defvar *device-count* nil)
+
+;;; Driver initialization
+
+(defvar *initialized* nil)
+
+(unless *initialized*
+    (ffi:c-inline () () :void "check_error(cuInit(0));")
+    (setf *initialized* t))
+
+
+;;; Device count
 
 (defun get-device-count ()
     (ffi:c-inline () () :int "{
@@ -122,9 +133,10 @@
             @(return) = count;
         }"))
 
-(unless *device-count*
-    (ffi:c-inline () () :void "check_error(cuInit(0));")
-    (setf *device-count* (get-device-count)))
+(defconstant +device-count+ (get-device-count))
+
+
+;;; Device capabilities
 
 (defstruct capabilities
     revision name memory mp-count const-memory shared-memory reg-count warp-size
@@ -180,9 +192,21 @@
             :warp-size warp-size :tex-alignment tex-alignment :has-overlap (/= 0 has-overlap)
             :has-mapping (/= 0 has-mapping) :has-timeout (/= 0 has-timeout) :max-threads max-threads)))
 
+
+;;; CUDA context management
+
 (ffi:def-foreign-type context-pointer :void)
 
-(defun destroy-context (context)
+(defvar *current-context* nil)
+
+(defstruct context
+    (device (error "Device required") :read-only t)
+    (handle (error "Handle required") :read-only t)
+    (linear-buffers nil)
+    (module-cache (make-hash-table :test #'equal))
+    (kernel-cache (make-hash-table :test #'eq)))
+
+(defun destroy-context-handle (context)
     (check-ffi-type context context-pointer)
     (ffi:c-inline (context) (:object) :void "{
             CUcontext ctx = ecl_foreign_data_pointer_safe(#0);
@@ -191,14 +215,35 @@
             (#0)->foreign.data = NULL;
         }"))
 
-(defvar *current-context* nil)
+(defun valid-context-handle-p (handle)
+    (ffi:c-inline (handle 'context-pointer) (:object :object) :object
+        "(((IMMEDIATE(#0) == 0) && ((#0)->d.t == t_foreign) &&
+            ((#0)->foreign.tag == #1) && ((#0)->foreign.data != NULL))
+                ? Ct : Cnil)"
+        :one-liner t))
+
+(defun valid-context-p (&optional (context *current-context*))
+    (and (typep context 'context)
+         (valid-context-handle-p (context-handle context))))
+
+(defun destroy-context (&optional (context *current-context*))
+    (destroy-context-handle (context-handle context))
+    (dolist (item (context-linear-buffers context))
+        (discard-linear-buffer item))
+    (setf (context-linear-buffers context) nil)
+    (clrhash (context-module-cache context))
+    (clrhash (context-kernel-cache context))
+    (ext:set-finalizer context nil)
+    (when (eql context *current-context*)
+        (setf *current-context* nil)))
 
 (defun create-context (device &key sync-mode with-mapping)
+    (assert (not (valid-context-p)))
     (let* ((map-flag (if with-mapping 1 0))
            (sync-flag (case sync-mode
                          ((nil) 0) (:auto 0) (:spin 1) (:yield 2) (:block 3)
                          (t (error "Invalid sync mode: ~A" sync-mode))))
-           (context
+           (handle
                (ffi:c-inline
                    (device map-flag sync-flag 'context-pointer)
                    (:int :int :int :object)
@@ -215,9 +260,14 @@
                        }
                        check_error(cuCtxCreate(&ctx, flags, dev));
                        @(return) = ecl_make_foreign_data(#3, 0, ctx);
-                   }")))
+                   }"))
+           (context
+               (make-context :device device :handle handle)))
         (ext:set-finalizer context #'destroy-context)
         (setf *current-context* context)))
+
+
+;;; Linear buffer management
 
 (ffi:def-struct linear-buffer
     (width :unsigned-int)
@@ -234,7 +284,15 @@
     } LinearBuffer;
 ")
 
-(defun destroy-linear-buffer (buffer)
+(defun valid-linear-buffer-p (handle)
+    (ffi:c-inline (handle 'linear-buffer) (:object :object) :object
+        "(((IMMEDIATE(#0) == 0) && ((#0)->d.t == t_foreign) &&
+            ((#0)->foreign.tag == #1) &&
+            (((LinearBuffer*)((#0)->foreign.data))->device_ptr != NULL))
+                ? Ct : Cnil)"
+        :one-liner t))
+
+(defun free-linear-buffer (buffer)
     (check-ffi-type buffer linear-buffer)
     (ffi:c-inline (buffer) (:object) :void "{
             LinearBuffer *pbuf = ecl_foreign_data_pointer_safe(#0);
@@ -243,7 +301,27 @@
             pbuf->device_ptr = NULL;
         }"))
 
+(defun discard-linear-buffer (buffer)
+    (check-ffi-type buffer linear-buffer)
+    (ffi:c-inline (buffer) (:object) :void "{
+            LinearBuffer *pbuf = ecl_foreign_data_pointer_safe(#0);
+            pbuf->device_ptr = NULL;
+        }"))
+
+(defun destroy-linear-buffer (buffer)
+    (check-ffi-type buffer linear-buffer)
+    (when (valid-linear-buffer-p buffer)
+        (prog2
+            (assert (and (valid-context-p)
+                        (find buffer
+                            (context-linear-buffers *current-context*))))
+            (free-linear-buffer buffer)
+            (setf (context-linear-buffers *current-context*)
+                (delete buffer
+                    (context-linear-buffers *current-context*))))))
+
 (defun create-linear-buffer (width &optional (height 1) &key pitched)
+    (assert (valid-context-p))
     (let* ((buffer
                (ffi:c-inline
                    (width height (or pitched 0) 'linear-buffer)
@@ -262,7 +340,7 @@
                        }
                        @(return) = buf;
                    }")))
-        (ext:set-finalizer buffer #'destroy-linear-buffer)
+        (push buffer (context-linear-buffers *current-context*))
         buffer))
 
 (defun linear-size (buffer)
@@ -279,6 +357,8 @@
 (defun linear-pitched-p (buffer)
     (/= (ffi:get-slot-value buffer 'linear-buffer 'pitch)
         (ffi:get-slot-value buffer 'linear-buffer 'width)))
+
+;; Linear buffers for Lisp arrays
 
 (defun array-element-size (arr)
     (let ((tname (array-element-type arr)))
