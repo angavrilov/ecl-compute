@@ -10,6 +10,7 @@
         "CREATE-LINEAR-BUFFER" "DESTROY-LINEAR-BUFFER"
         "LINEAR-SIZE" "LINEAR-EXTENT" "LINEAR-PITCH" "LINEAR-PITCHED-P"
         "CREATE-LINEAR-FOR-ARRAY" "COPY-LINEAR-FOR-ARRAY"
+        "KERNEL"
     ))
 
 (in-package cuda)
@@ -365,3 +366,4 @@
             }
         }"))
 
+(defconstant +ptr-size+ 4)
