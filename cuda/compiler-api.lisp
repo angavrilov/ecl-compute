@@ -47,7 +47,7 @@
 (defparameter *compiled-cache* (make-hash-table :test #'equal))
 
 (defvar *nvcc* "nvcc")
-(defvar *nvcc-flags* ""))
+(defvar *nvcc-flags* "")
 
 (defun do-compile-kernel (code)
     (let* ((tmpname (ext:mkstemp #P"TMP:CUDAKERNEL"))
@@ -68,7 +68,8 @@
                     (unless (= rv 0)
                         (error "Compilation failed: ~A~%" rv)))
                 (with-open-file (out outname)
-                    (let ((buffer (make-string (file-length out))))
+                    (let ((buffer (make-string (file-length out)
+                                      :element-type 'base-char)))
                         (read-sequence buffer out)
                         buffer)))
             (when (probe-file srcname)
@@ -89,13 +90,14 @@
         (grid-size) "Bad grid size spec: ~A" grid-size)
     (let* ((func-var (gensym)))
         (multiple-value-bind
-            (arg-strings arg-forms)
+            (arg-strings arg-forms arg-size)
             (translate-args func-var args)
             (let* ((full-code
                        (format nil
-                           "__global__ __device__ void kernel_func(~{~A~^, ~}) {~%~A~%}~%"
+                           "extern \"C\" __global__ __device__
+                            void kernel_func(~{~A~^, ~}) {~%~A~%}~%"
                            arg-strings code))
                    (compiled-code (compile-kernel full-code)))
-                `(let ((,func-var (load-kernel '("kernel-func" . ,compiled-code))))
+                `(let ((,func-var (load-kernel '("kernel_func" . ,compiled-code))))
                      ,@arg-forms
-                     (launch-kernel ,func-var ,@block-size ,@grid-size))))))
+                     (launch-kernel ,func-var ,arg-size ,@block-size ,@grid-size))))))

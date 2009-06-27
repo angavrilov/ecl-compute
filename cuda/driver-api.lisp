@@ -11,7 +11,7 @@
         "VALID-LINEAR-BUFFER-P"
         "LINEAR-SIZE" "LINEAR-EXTENT" "LINEAR-PITCH" "LINEAR-PITCHED-P"
         "CREATE-LINEAR-FOR-ARRAY" "COPY-LINEAR-FOR-ARRAY"
-        "KERNEL"
+        "KERNEL" "DISCARD-CODE-CACHE"
     ))
 
 (in-package cuda)
@@ -19,6 +19,7 @@
 (ffi:clines "
     #include <stdio.h>
     #include <cuda.h>
+    #include <fenv.h>
 
     static void check_error(CUresult err) {
         switch (err) {
@@ -100,12 +101,44 @@
         }
     }")
 
+
+;;; Handle wrapper
+
+(ffi:clines "
+    #define FOREIGNP(objp) ((IMMEDIATE(objp) == 0) && ((objp)->d.t == t_foreign))
+    #define FOREIGN_WITH_TAGP(objp,tagv) (FOREIGNP(objp) && ((objp)->foreign.tag == tagv))
+    ")
+
+(defmacro def-foreign-handle (typename destroy-f valid-f ctype free-code)
+   `(progn
+        (ffi:def-foreign-type ,typename :void)
+
+        (defun ,destroy-f (handle)
+            (check-ffi-type handle ,typename)
+            (ffi:c-inline (handle) (:object) :void
+                ,(format nil "{
+                    ~A ptr = ecl_foreign_data_pointer_safe(#0);
+                    if (ptr) { ~A; }
+                    (#0)->foreign.data = NULL;
+                }" ctype free-code)))
+
+        (defun ,valid-f (handle)
+            (ffi:c-inline (handle ',typename) (:object :object) :object
+                "((FOREIGN_WITH_TAGP(#0,#1) && ((#0)->foreign.data != NULL))
+                    ? Ct : Cnil)"
+                :one-liner t))))
+
 (defmacro check-ffi-type (var typespec)
     `(progn
          (check-type ,var si:foreign-data)
          (assert (eql (si:foreign-data-tag ,var) ',typespec)
              (,var)
              "Type mismatch: ~A is not a wrapped foreign ~A" ,var ',typespec)))
+
+(defmacro discard-ffi-handle (handle)
+    (check-type handle si:foreign-data)
+    (ffi:c-inline (handle) (:object) :void
+        "(#0)->foreign.data = NULL;"))
 
 
 ;;; Driver initialization
@@ -195,7 +228,9 @@
 
 ;;; CUDA context management
 
-(ffi:def-foreign-type context-pointer :void)
+(def-foreign-handle context-pointer
+    destroy-context-handle valid-context-handle-p
+    "CUcontext" "check_error(cuCtxDestroy(ptr))")
 
 (defvar *current-context* nil)
 
@@ -205,22 +240,6 @@
     (linear-buffers nil)
     (module-cache (make-hash-table :test #'equal))
     (kernel-cache (make-hash-table :test #'eq)))
-
-(defun destroy-context-handle (context)
-    (check-ffi-type context context-pointer)
-    (ffi:c-inline (context) (:object) :void "{
-            CUcontext ctx = ecl_foreign_data_pointer_safe(#0);
-            if (ctx)
-                check_error(cuCtxDestroy(ctx));
-            (#0)->foreign.data = NULL;
-        }"))
-
-(defun valid-context-handle-p (handle)
-    (ffi:c-inline (handle 'context-pointer) (:object :object) :object
-        "(((IMMEDIATE(#0) == 0) && ((#0)->d.t == t_foreign) &&
-            ((#0)->foreign.tag == #1) && ((#0)->foreign.data != NULL))
-                ? Ct : Cnil)"
-        :one-liner t))
 
 (defun valid-context-p (&optional (context *current-context*))
     (and (typep context 'context)
@@ -286,8 +305,7 @@
 
 (defun valid-linear-buffer-p (handle)
     (ffi:c-inline (handle 'linear-buffer) (:object :object) :object
-        "(((IMMEDIATE(#0) == 0) && ((#0)->d.t == t_foreign) &&
-            ((#0)->foreign.tag == #1) &&
+        "((FOREIGN_WITH_TAGP(#0,#1) &&
             (((LinearBuffer*)((#0)->foreign.data))->device_ptr != NULL))
                 ? Ct : Cnil)"
         :one-liner t))
@@ -446,4 +464,127 @@
             }
         }"))
 
+
+;;; CUDA code module management
+
+(def-foreign-handle module-pointer
+    destroy-module-handle valid-module-handle-p
+    "CUmodule" "check_error(cuModuleUnload(ptr))")
+
+(def-foreign-handle function-pointer
+    destroy-function-handle valid-function-handle-p
+    "CUfunction" "")
+
+(defun load-module (code)
+    (check-type code base-string)
+    (assert (valid-context-p))
+    (let* ((cache (context-module-cache *current-context*))
+           (handle (gethash code cache)))
+        (if (valid-module-handle-p handle)
+            handle
+            (let ((new-handle
+                      (ffi:c-inline
+                          (code 'module-pointer)
+                          (:object :object)
+                          :object "{
+                              CUmodule mod;
+                              int fpstate = fedisableexcept(FE_ALL_EXCEPT);
+                              CUresult res = cuModuleLoadData(&mod, #0->base_string.self);
+                              feenableexcept(fpstate);
+                              check_error(res);
+                              @(return) = ecl_make_foreign_data(#1, 0, mod);
+                          }")))
+                (setf (gethash code cache) new-handle)))))
+
+(defun load-kernel (key)
+    (let* ((cache (context-kernel-cache *current-context*))
+           (handle (gethash key cache)))
+        (if handle handle
+            (progn
+                (check-type (car key) base-string)
+                (let* ((module (load-module (cdr key)))
+                       (new-handle
+                           (ffi:c-inline
+                              ((car key) module 'function-pointer)
+                              (:object :object :object)
+                              :object "{
+                                  CUmodule mod = ecl_foreign_data_pointer_safe(#1);
+                                  CUfunction fun;
+                                  check_error(cuModuleGetFunction(&fun, mod, #0->base_string.self));
+                                  @(return) = ecl_make_foreign_data(#2, 0, fun);
+                              }")))
+                    (setf (gethash key cache) new-handle))))))
+
+(defun discard-code-cache ()
+    (when (valid-context-p)
+        (clrhash (context-kernel-cache *current-context*))
+        (maphash #'(lambda (code handle)
+                       (destroy-module-handle handle))
+            (context-module-cache *current-context*))
+        (clrhash (context-module-cache *current-context*))
+        nil))
+
+
+;;; Kernel parameter specification
+
 (defconstant +ptr-size+ 4)
+
+(defmacro make-param-set-simple (name ltype ctype cmd)
+   `(defun ,name (fhandle offset value)
+        (ffi:c-inline
+            (fhandle offset value 'function-pointer)
+            (:object :int ,ltype :object)
+            :void
+            ,(format nil "{
+                    if (!FOREIGN_WITH_TAGP(#0,#3)) FEerror(\"Not a function handle\",1,#0);
+                    {
+                        CUfunction fun = #0->foreign.data;
+                        int ofs = #1;
+                        ~A val = #2;
+                        check_error(~A);
+                    }
+                }" ctype cmd))))
+
+(make-param-set-simple
+    param-set-int :int "int" "cuParamSeti(fun,ofs,val)")
+
+(make-param-set-simple
+    param-set-uint :unsigned-int "unsigned int" "cuParamSeti(fun,ofs,val)")
+
+(make-param-set-simple
+    param-set-float :float "float" "cuParamSetf(fun,ofs,val)")
+
+(make-param-set-simple
+    param-set-double :double "double" "cuParamSetv(fun,ofs,&val,sizeof(val))")
+
+(defun param-set-ptr (fhandle offset value)
+    (ffi:c-inline
+        (fhandle offset value 'function-pointer 'linear-buffer)
+        (:object :int :object :object :object)
+        :void "{
+            if (!FOREIGN_WITH_TAGP(#0,#3)) FEerror(\"Not a function handle\",1,#0);
+            if (!FOREIGN_WITH_TAGP(#2,#4)) FEerror(\"Not a linear buffer\",1,#2);
+            {
+                CUfunction fun = #0->foreign.data;
+                LinearBuffer *pbuf = #2->foreign.data;
+                if (!pbuf->device_ptr) FEerror(\"Linear buffer not allocated.\",0);
+                check_error(cuParamSeti(fun,#1,pbuf->device_ptr));
+            }
+        }"))
+
+
+;;; Kernel launch
+
+(defun launch-kernel (fhandle arg-size blkx blky blkz grdx grdy)
+    (ffi:c-inline
+        (fhandle 'function-pointer arg-size blkx blky blkz grdx grdy)
+        (:object :object :int :int :int :int :int :int)
+        :void "{
+            if (!FOREIGN_WITH_TAGP(#0,#1)) FEerror(\"Not a function handle\",1,#0);
+            {
+                CUfunction fun = #0->foreign.data;
+                check_error(cuParamSetSize(fun,#2));
+                check_error(cuFuncSetBlockShape(fun,#3,#4,#5));
+                check_error(cuLaunchGrid(fun,#6,#7));
+            }
+        }"))

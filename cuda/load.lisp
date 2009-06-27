@@ -24,4 +24,6 @@
           (c::*cc-flags*
               (concatenate 'string c::*cc-flags*
                   " -I/usr/local/cuda/include")))
-        (load-compile "driver-api")))
+        (load-compile "driver-api"))
+
+    (load-interp "compiler-api"))
