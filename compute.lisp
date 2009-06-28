@@ -91,7 +91,9 @@
                     (do ((dims (get name 'mv-dimensions) (cdr dims))
                          (idx 0 (1+ idx)))
                         ((null dims) nil)
-                        (incf-nil (gethash `(<= ,(car dims) (arr-dim ,name ,idx))
+                        (incf-nil
+                            (gethash `(<= ,(car dims)
+                                          (arr-dim (multivalue-data ,name) ,idx))
                                       *consistency-checks*))))
                 ;; Return the expression
                 rexpr))

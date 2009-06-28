@@ -258,6 +258,8 @@
             nil)
         (`(declare ,@_)
             nil)
+        (`(multivalue-data ,@_)
+            nil)
         (`(loop-range (ranging ,_ ,minv ,maxv ,@_) ,@body)
             (count-subexprs-rec minv cnt-table)
             (count-subexprs-rec maxv cnt-table)
@@ -294,8 +296,8 @@
                   ;; Factor symbols
                   (when (and pull-symbols (symbolp expr))
                       (setf (gethash expr fct-table) t))
-                  ;; Factor temporaries
-                  (ifmatch `(temporary ,@_) expr
+                  ;; Factor temporaries and arrays
+                  (ifmatch `(,(or 'temporary 'multivalue-data) ,@_) expr
                       (setf (gethash expr fct-table) t))
                   ;; Factor references used on the lhs of an
                   ;; assignment, and also somewhere else

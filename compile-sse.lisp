@@ -57,6 +57,7 @@
     (match expr
         ((type atom _) expr)
         (`(declare ,@_) expr)
+        (`(multivalue-data ,@_) expr)
         (`(1+ ,v)
             (expand-macros `(+ ,v 1)))
         (`(1- ,v)
@@ -460,6 +461,8 @@
                          (`(declare ,@_)
                              (unless stmtp
                                  (write-string "0" out)))
+                         (`(multivalue-data ,@_)
+                             (write-string (ref-arg form) out))
                          (`(_grp ,x)
                              (compile-form out x))
                          (`(tmp-ref ,x)

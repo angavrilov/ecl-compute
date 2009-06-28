@@ -1,7 +1,13 @@
 (ffi:clines "#include <stdio.h>")
 
 (defun dump-array (file arr)
-    (ffi:c-inline (file arr) (:cstring :object) :void
+    (ffi:c-inline
+        (file
+            (if (typep arr 'fast-compute:multivalue)
+                (fast-compute:multivalue-data arr)
+                arr))
+        (:cstring :object)
+        :void
         "{ FILE *f;
            int tmp,i,size;
            cl_object arr = #1;
@@ -34,7 +40,14 @@
            fclose(f); }"))
 
 (defun restore-array (file arr)
-    (ffi:c-inline (file arr file) (:cstring :object :object) :void
+    (ffi:c-inline
+        (file
+            (if (typep arr 'fast-compute:multivalue)
+                (fast-compute:multivalue-data arr :for-update :full)
+                arr)
+            file)
+        (:cstring :object :object)
+        :void
         "{ FILE *f;
            int tmp,rank,dim,i,size;
            cl_object arr = #1;

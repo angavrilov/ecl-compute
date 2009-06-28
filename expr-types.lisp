@@ -19,6 +19,7 @@
                             (recurse-factored #'propagate-upper-type e subtype))))
                 (match expr
                     ((type atom _) nil)
+                    (`(multivalue-data ,@_) nil)
                     (`(ranging ,idx ,minv ,maxv ,@_)
                         (mark-list (list idx minv maxv) 'integer))
                     (`(tmp-ref ,name)
@@ -82,6 +83,7 @@
                     ((type float _) 'float)
                     ((type integer _) 'integer)
                     ((type symbol s) upper-type)
+                    (`(multivalue-data ,@_) 'array)
                     (`(ranging ,ix ,minv ,maxv ,@_)
                         (get-bottom-type ix)
                         (get-bottom-type minv)
@@ -183,6 +185,8 @@
                         nil)
                     (`(ranging ,@_)
                         old-expr)
+                    (`(multivalue-data ,@_)
+                        `(the (array single-float) ,old-expr))
                     (`(temporary ,_ ,dims ,@_)
                         `(temporary
                              ,(cadr old-expr) ,dims ,@(cdddr old-expr)))

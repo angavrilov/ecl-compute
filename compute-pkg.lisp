@@ -4,6 +4,7 @@
     (:documentation "Fast array computation library")
     (:use "COMMON-LISP" "CL-MATCH")
     (:export
+        "MULTIVALUE" "MULTIVALUE-DATA"
         "DEF-MULTIVALUE" "COPY-MULTIVALUE"
         "ALLOC-MULTIVALUES" "WITH-LOCAL-MULTIVALUES"
         "IREF" "ENABLE-EXPR-QUOTES" "LOOP-INDEXES"

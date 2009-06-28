@@ -47,6 +47,14 @@
             (error "Cannot redefine ~A for ~A to: ~A~% - already set to: ~A"
                 tag sym value old-value))))
 
+(defstruct multivalue
+    (name nil :type symbol)
+    (data-dims nil :type list :read-only t)
+    (data-array nil :type (array single-float) :read-only t))
+
+(defmacro multivalue-data (mv &key for-update)
+   `(multivalue-data-array ,mv))
+
 (defmacro def-multivalue (&whole defspec name indexes
                              &key (layout (mapcar #'car indexes)))
     (when (/= (length indexes) (length layout))
@@ -56,7 +64,7 @@
            (decl-dims (mapcar #'(lambda (x) '*) index-dims)))
         `(eval-when (:compile-toplevel :load-toplevel :execute)
              (defvar ,name nil)
-             (declaim (type (array single-float ,decl-dims) ,name))
+             (declaim (type multivalue ,name))
              (set-prop-nochange ',name 'mv-indexes ',indexes)
              (set-prop-nochange ',name 'mv-layout ',layout)
              (setf (get ',name 'mv-dimensions) ',index-dims)
@@ -69,16 +77,22 @@
                                (reusable (pop reuse-list)))
                              (if (and reusable
                                       (equal dims
-                                          (array-dimensions reusable)))
-                                 reusable
+                                          (multivalue-data-dims reusable)))
+                                 (progn
+                                     (setf (multivalue-name reusable) ',name)
+                                     reusable)
                                  (progn
                                      (setf reuse-list nil)
-                                     (make-array dims
-                                         :element-type 'single-float
-                                         :initial-element 0.0))))))
+                                     (make-multivalue
+                                         :name ',name
+                                         :data-array
+                                             (make-array dims
+                                                 :element-type 'single-float
+                                                 :initial-element 0.0)
+                                         :data-dims dims))))))
                  (defun ,(deallocator-symbol name) (item)
-                     (unless (arrayp item)
-                         (error "Trying to deallocate a non-array multivalue"))
+                     (unless (typep item 'multivalue)
+                         (error "Trying to deallocate a non-multivalue"))
                      (with-lock-spin (reuse-mutex)
                          (push item reuse-list)))))))
 
@@ -161,7 +175,7 @@
                 (when (/= (length idxvals) (length indexes))
                     (error "Index count mismatch for ~A: ~A instead of ~A"
                         name idxvals indexes))
-                (values `(aref ,name ,@idxlst) t dimchk)))))
+                (values `(aref (multivalue-data ,name) ,@idxlst) t dimchk)))))
 
 (defparameter *iref-cache* (make-hash-table))
 
