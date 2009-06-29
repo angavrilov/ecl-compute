@@ -53,11 +53,67 @@
 (defstruct multivalue
     (name nil :type symbol)
     (data-dims nil :type list :read-only t)
-    (data-array nil :type (array single-float) :read-only t))
+    (data-array nil :type (array single-float) :read-only t)
+  #+cuda
+    (cuda-buffer nil)
+  #+cuda
+    (host-valid t)
+  #+cuda
+    (cuda-valid nil))
 
 (defun multivalue-wrap-sync (sync-spec body)
-    (print sync-spec)
-    body)
+  #-cuda body
+  #+cuda
+    (let ((cur-target :host)
+          (cur-mode :unknown)
+          (cmd-list nil))
+        (dolist (op sync-spec)
+            (if (or (null op) (keywordp op))
+                (case op
+                    ((nil) nil)
+                    ((:host :cuda-device)
+                        (setf cur-target op))
+                    ((:unknown :read :read-write :write :write-all)
+                        (setf cur-mode op))
+                    (t
+                        (error "Unknown keyword: ~A" op)))
+                (push
+                   `(let* ((mv ,op)
+                           (mvcb (multivalue-cuda-buffer mv))
+                           (mvarr (multivalue-data-array mv)))
+                        (declare (ignorable mvcb mvarr))
+                      ,@(case cur-target
+                            (:cuda-device
+                                ;; For a CUDA kernel
+                                (cond-list
+                                   (t
+                                       `(unless (cuda:valid-linear-buffer-p mvcb)
+                                            (setf mvcb
+                                                (cuda:create-linear-for-array mvarr))
+                                            (setf (multivalue-cuda-buffer mv) mvcb)
+                                            (setf (multivalue-cuda-valid mv) nil)))
+                                   ((not (eql cur-mode :write-all))
+                                       `(unless (multivalue-cuda-valid mv)
+                                            (cuda:copy-linear-for-array mvcb mvarr)))
+                                   (t
+                                       `(setf (multivalue-cuda-valid mv) t))
+                                   ((not (eql cur-mode :read))
+                                       `(setf (multivalue-host-valid mv) nil))))
+                            (:host
+                                ;; For host code
+                                (cond-list
+                                   ((not (eql cur-mode :write-all))
+                                       `(unless (multivalue-host-valid mv)
+                                            (cuda:copy-linear-for-array
+                                                mvcb mvarr :from-device t)))
+                                   (t
+                                       `(setf (multivalue-host-valid mv) t))
+                                   ((not (eql cur-mode :read))
+                                       `(setf (multivalue-cuda-valid mv) nil))))))
+                    cmd-list)))
+        (if cmd-list
+            `(progn ,@(nreverse cmd-list) ,body)
+            body)))
 
 (defmacro multivalue-sync (&rest args)
     (multivalue-wrap-sync args nil))

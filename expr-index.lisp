@@ -25,6 +25,21 @@
         (t
             expr)))
 
+(defmacro cond-list* (&body items)
+    (let ((ritems (reverse items))
+          (xsym (gensym)))
+        (reduce
+            #'(lambda (tail clause)
+                  `(let ((,xsym ,tail))
+                       (if ,(first clause)
+                           (list* ,@(rest clause) ,xsym)
+                           ,xsym)))
+            (rest ritems)
+            :initial-value (first ritems))))
+
+(defmacro cond-list (&body items)
+    `(cond-list* ,@items nil))
+
 (defun compute-range-ranging (expr prev-expr)
     (if (equal expr prev-expr)
         expr

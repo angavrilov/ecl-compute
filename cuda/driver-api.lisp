@@ -149,6 +149,7 @@
     (ffi:c-inline () () :void "check_error(cuInit(0));")
     (setf *initialized* t))
 
+(pushnew :cuda *features*)
 
 ;;; Device count
 
