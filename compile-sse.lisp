@@ -714,11 +714,13 @@
                 (let* ((nomacro-expr (expand-macros loop-expr))
                        (nolet-expr   (expand-let nomacro-expr))
                        (noiref-expr (simplify-iref nolet-expr))
+                       (ref-list    (collect-arefs noiref-expr))
                       ; (opt-expr    (optimize-tree noiref-expr))
                        (noaref-expr (expand-aref noiref-expr))
                        (check-expr  (insert-checks noaref-expr)))
-                    (wrap-compute-parallel parallel range-list check-expr
-                        #'(lambda (code)
-                             `(let ((*current-compute* ',original))
-                                  ,(compile-expr-generic
-                                       (code-motion code :pull-symbols t))))))))))
+                    (wrap-compute-sync-data :host ref-list
+                        (wrap-compute-parallel parallel range-list check-expr
+                            #'(lambda (code)
+                                 `(let ((*current-compute* ',original))
+                                      ,(compile-expr-generic
+                                           (code-motion code :pull-symbols t)))))))))))

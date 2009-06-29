@@ -4,7 +4,7 @@
     (ffi:c-inline
         (file
             (if (typep arr 'fast-compute:multivalue)
-                (fast-compute:multivalue-data arr)
+                (fast-compute:multivalue-data arr :read)
                 arr))
         (:cstring :object)
         :void
@@ -43,7 +43,7 @@
     (ffi:c-inline
         (file
             (if (typep arr 'fast-compute:multivalue)
-                (fast-compute:multivalue-data arr :for-update :full)
+                (fast-compute:multivalue-data arr :write-all)
                 arr)
             file)
         (:cstring :object :object)

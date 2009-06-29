@@ -2,6 +2,9 @@
 
 (in-package fast-compute)
 
+(defparameter *current-compute* nil)
+(defparameter *current-compute-body* nil)
+
 (defun unsymbol (x)
     (if (symbolp x) (symbol-name x) x))
 
@@ -52,8 +55,19 @@
     (data-dims nil :type list :read-only t)
     (data-array nil :type (array single-float) :read-only t))
 
-(defmacro multivalue-data (mv &key for-update)
-   `(multivalue-data-array ,mv))
+(defun multivalue-wrap-sync (sync-spec body)
+    (print sync-spec)
+    body)
+
+(defmacro multivalue-sync (&rest args)
+    (multivalue-wrap-sync args nil))
+
+(defmacro multivalue-data (mv &optional use-mode)
+    (if (eql use-mode t)
+       `(multivalue-data-array ,mv)
+        (multivalue-wrap-sync
+            (list (or use-mode :unknown) mv)
+           `(multivalue-data-array ,mv))))
 
 (defmacro def-multivalue (&whole defspec name indexes
                              &key (layout (mapcar #'car indexes)))
@@ -175,7 +189,11 @@
                 (when (/= (length idxvals) (length indexes))
                     (error "Index count mismatch for ~A: ~A instead of ~A"
                         name idxvals indexes))
-                (values `(aref (multivalue-data ,name) ,@idxlst) t dimchk)))))
+                (values
+                    `(aref
+                         (multivalue-data ,name ,(if *current-compute* t))
+                         ,@idxlst)
+                    t dimchk)))))
 
 (defparameter *iref-cache* (make-hash-table))
 

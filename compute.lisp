@@ -2,9 +2,6 @@
 
 (in-package fast-compute)
 
-(defparameter *current-compute* nil)
-(defparameter *current-compute-body* nil)
-
 (defun get-index-var (idx-spec)
     (if (or (atom idx-spec)
             (index-expr-p idx-spec))
@@ -93,7 +90,7 @@
                         ((null dims) nil)
                         (incf-nil
                             (gethash `(<= ,(car dims)
-                                          (arr-dim (multivalue-data ,name) ,idx))
+                                          (arr-dim (multivalue-data ,name t) ,idx))
                                       *consistency-checks*))))
                 ;; Return the expression
                 rexpr))
@@ -133,6 +130,61 @@
         (if checks
             `(safety-check ,checks ,new-expr)
             new-expr)))
+
+(defun collect-arefs (tree)
+    (let ((read-tbl (make-hash-table :test #'equal))
+          (write-tbl (make-hash-table :test #'equal))
+          (res-tbl (make-hash-table :test #'equal)))
+        (labels ((do-collect (form)
+                     (match form
+                         ((type atom _) nil)
+                         (`(setf (,(or 'aref 'tmp-ref) ,@args) ,rexpr)
+                             (record args t)
+                             (do-collect rexpr))
+                         (`(setf ,@_)
+                             (error "Non-array stores not allowed: ~A" form))
+                         (`(,(or 'aref 'tmp-ref) ,@args)
+                             (record args nil)
+                             (do-collect (cdr args)))
+                         (_
+                             (dolist (item form)
+                                 (do-collect item)))))
+                 (record (args written)
+                     (let* ((obj (first args))
+                            (indexes (cdr args))
+                            (rtab (if written write-tbl read-tbl))
+                            (rentry
+                                (or (gethash obj res-tbl)
+                                    (setf (gethash obj res-tbl)
+                                        (list nil nil)))))
+                         (unless (gethash args rtab)
+                             (setf (gethash args rtab) t)
+                             (if written
+                                 (push indexes (cadr rentry))
+                                 (push indexes (car rentry)))))))
+            (do-collect tree)
+            (let ((res-list nil))
+                (maphash
+                    #'(lambda (key info)
+                          (push (cons key info) res-list))
+                    res-tbl)
+                res-list))))
+
+(defun wrap-compute-sync-data (sync-code ref-list body)
+    (multivalue-wrap-sync
+        (cons sync-code
+            (mapcan
+               #'(lambda (spec)
+                     (match spec
+                         (`((multivalue-data ,mv ,@_) ,rv ,wv ,@_)
+                             (list
+                                 (cond
+                                     ((and rv wv) :read-write)
+                                     (rv :read)
+                                     (wv :write))
+                                 mv))))
+               ref-list))
+         body))
 
 (defun wrap-compute-parallel (parallel loop-list code &optional (gen-func #'identity))
     (if (null parallel)
@@ -390,14 +442,16 @@
                 (make-compute-loops name idxspec expr with where carrying cluster-cache)
             (let* ((nolet-expr (expand-let loop-expr))
                    (noiref-expr (simplify-iref nolet-expr))
+                   (ref-list    (collect-arefs noiref-expr))
                    (check-expr  (insert-checks noiref-expr))
                    (motion-expr (code-motion check-expr))
                    (annot-expr  (annotate-types motion-expr)))
-                (wrap-compute-parallel parallel range-list
-                    `(let ((*current-compute* ',original)
-                           (*current-compute-body* ',motion-expr))
-                        (declare (optimize (safety 1) (debug 1)))
-                        ,annot-expr))))))
+                (wrap-compute-sync-data :host ref-list
+                    (wrap-compute-parallel parallel range-list
+                        `(let ((*current-compute* ',original)
+                               (*current-compute-body* ',motion-expr))
+                            (declare (optimize (safety 1) (debug 1)))
+                            ,annot-expr)))))))
 
 (defmacro calc (exprs)
     (annotate-types (code-motion (simplify-iref (expand-let (macroexpand-1 `(letv ,exprs)))))))
