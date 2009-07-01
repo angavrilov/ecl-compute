@@ -115,24 +115,28 @@
                                 'nil)))
                 args))
         (declare (ignorable ,form-arg))
-        (do ((aptr cg-flags (cddr aptr)))
-            ((null aptr))
-            (case (car aptr)
-                ,@(mapcar
-                      #'(lambda (sym)
-                            `(,(intern (symbol-name sym) "KEYWORD")
-                                 (setf ,sym (cadr aptr))))
-                      args)))
+        ,@(if args
+              `((do ((aptr cg-flags (cddr aptr)))
+                    ((null aptr))
+                    (case (car aptr)
+                        ,@(mapcar
+                              #'(lambda (sym)
+                                    `(,(intern (symbol-name sym) "KEYWORD")
+                                         (setf ,sym (cadr aptr))))
+                              args)))))
         (macrolet
                 ((text (pattern &rest args)
-                     (if (or args
-                             (and (stringp pattern)
+                     (if (and (stringp pattern)
+                             (or args
                                  (position #\~ pattern)))
                          `(format cg-output (formatter ,pattern) ,@args)
-                         `(write-string ,pattern cg-output)))
+                         (progn
+                             (assert (null args))
+                             `(write-string ,pattern cg-output))))
                  (recurse (expr &rest flags)
                      (let ((use-stack 'cg-full-stack))
-                         (when (eql (car flags) :use-stack)
+                         (when (find (car flags)
+                                   '(:use-stack :switch-stack))
                              (setf use-stack (cadr flags))
                              (setf flags (cddr flags)))
                         `(let ((stack ,use-stack))
@@ -172,10 +176,7 @@
     (assert (get sym 'let-clause))
     (concatenate 'string "tmp_" (symbol-name sym)))
 
-(def-form-compiler compile-generic-c (form form-type stmt-p)
-    ((type number nv)
-        (text "~S" nv))
-
+(def-form-compiler compile-generic (form stmt-p)
     (`(declare ,@_)
         (unless stmt-p
             (text "0")))
@@ -184,6 +185,34 @@
         (recurse x))
     (`(tmp-ref ,x)
         (recurse x))
+
+    (`(let* ,assns ,@body)
+        (unless stmt-p
+            (error "Let in a non-stmt context: ~A" form))
+        (text "{~%")
+        (dolist (assn assns)
+            (recurse
+                `(setf-tmp ,(first assn) ,(second assn))))
+        (dolist (cmd body)
+            (recurse cmd :stmt-p t))
+        (text "}~%"))
+
+    ((when stmt-p
+         `(progn ,@body))
+        (dolist (cmd body)
+            (recurse cmd :stmt-p t)))
+
+    (`(progn ,cmd1 ,@rest)
+        (text "(")
+        (recurse cmd1)
+        (dolist (cmd rest)
+            (text ",~%")
+            (recurse cmd))
+        (text ")")))
+
+(def-form-compiler compile-generic-c (form form-type stmt-p)
+    ((type number nv)
+        (text "~S" nv))
 
     (`(ranging ,v ,@_)
         (if (ranging-loop-level form)
@@ -306,33 +335,13 @@
         (recurse b)
         (text ")"))
 
-    (`(let* ,assns ,@body)
-        (text "{~%")
-        (dolist (assn assns)
-            (recurse
-                `(setf-tmp ,(first assn) ,(second assn))))
-        (dolist (cmd body)
-            (recurse cmd :stmt-p t))
-        (text "}~%"))
-
     (`(setf ,target ,expr)
         (recurse target)
         (text " = (")
         (recurse expr)
         (text ")")
         (when stmt-p
-            (text ";~%")))
-
-    ((when stmt-p
-         `(progn ,@body))
-        (dolist (cmd body)
-            (recurse cmd :stmt-p t)))
-
-    (`(progn ,cmd1 ,@rest)
-        (recurse cmd1)
-        (dolist (cmd rest)
-            (text ", ")
-            (recurse cmd))))
+            (text ";~%"))))
 
 (def-form-compiler compile-c-inline-temps (form)
     (`(setf-tmp ,var (temporary ',name ,dims ,@_))
