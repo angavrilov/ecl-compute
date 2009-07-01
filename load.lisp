@@ -33,6 +33,7 @@
                 '("multivalue.lisp"
                   "threads.lisp"
                   "compute.lisp"
+                  "compile.lisp"
                   "compile-sse.lisp"))
         (load-interp module-name))
 

@@ -2,104 +2,6 @@
 
 (in-package fast-compute)
 
-(defun expand-aref-1 (expr old-expr)
-    (match expr
-        (`(aref ,name ,@idxvals)
-            (let* ((idx-cnt    (length idxvals))
-                   (stride     nil)
-                   (stride-lst
-                       (loop for i from (1- idx-cnt) downto 0
-                        collect (prog1 stride
-                                   (let ((cstride `(arr-dim ,name ,i)))
-                                       (setf stride
-                                           (if stride
-                                               `(* ,stride ,cstride)
-                                               cstride))))))
-                   (ofs-lst (mapcar #'(lambda (idx istride)
-                                          (if istride `(* ,idx ,istride) idx))
-                                idxvals (nreverse stride-lst)))
-                   (ofs-expr (simplify-rec-once #'flatten-exprs-1 `(+ ,@ofs-lst)))
-                   (ofs-items (match ofs-expr (`(+ ,@rest) rest) (x (list x))))
-                   (num-ofs-items (remove-if-not #'numberp ofs-items))
-                   (var-ofs-items (remove-if #'numberp ofs-items))
-                   (levels   (sort
-                                 (remove-duplicates
-                                     (mapcar #'min-loop-level var-ofs-items))
-                                 #'level>))
-                   (ofs-groups (mapcar
-                                   #'(lambda (lvl)
-                                         (simplify-rec-once #'treeify-1
-                                             `(+ ,@(remove lvl var-ofs-items
-                                                       :test-not #'eql :key #'min-loop-level))))
-                                    levels)))
-                `(ptr-deref
-                     ,(reduce #'(lambda (base ofs) `(ptr+ ,base ,ofs))
-                          (nconc ofs-groups num-ofs-items)
-                          :initial-value `(arr-ptr ,name)))))
-        (`(tmp-ref ,name)
-            nil)
-        (`(tmp-ref ,name ,@idxvals)
-            (let ((rexpr (expand-aref-1 `(aref ,name ,@idxvals) old-expr)))
-                (simplify-index
-                    (simplify-rec-once
-                        #'(lambda (expr old-expr)
-                              (match expr
-                                  (`(arr-ptr (temporary ,@_)) (second expr))
-                                  (`(arr-dim (temporary ,_ ,dims ,@_) ,i)
-                                      (nth i dims))))
-                        rexpr))))
-        (_ nil)))
-
-(defun expand-aref (expr)
-    (simplify-rec-once #'expand-aref-1 expr))
-
-(defun expand-macros (expr)
-    (match expr
-        ((type atom _) expr)
-        (`(declare ,@_) expr)
-        (`(multivalue-data ,@_) expr)
-        (`(1+ ,v)
-            (expand-macros `(+ ,v 1)))
-        (`(1- ,v)
-            (expand-macros `(- ,v 1)))
-        (`(expt ,v 1)
-            (expand-macros v))
-        (`(expt ,v 2)
-            (expand-macros `(* ,v ,v)))
-        (`(temporary ,name ,dims ,@rest)
-            `(temporary ,name
-                 ,(mapcar #'expand-macros dims)
-                 ,@rest))
-        ((cons (or 'ranging 'aref 'iref '_grp 'tmp-ref 'quote
-                   '+ '- '* '/ 'mod 'rem 'floor 'ceiling 'truncate
-                   'and 'or 'if 'progn
-                   'sin 'cos 'exp 'expt
-                   '> '< '>= '<= '/= '= 'min 'max 'setf 'loop-range) tail)
-            (cons-save-old expr (car expr)
-                (mapcar-save-old #'expand-macros tail)))
-        (`(,(as op (or 'let 'let* 'symbol-macrolet)) ,vars ,@body)
-            (cons-save-old expr op
-                (cons-save-old (cdr expr)
-                    (mapcar-save-old
-                        #'(lambda (pair)
-                              (if (symbolp pair) (cons pair nil)
-                                  (cons-save-old pair
-                                      (car pair)
-                                      (mapcar-save-old #'expand-macros (cdr pair)))))
-                        vars)
-                    (mapcar-save-old #'expand-macros body))))
-        (_
-            (multiple-value-bind (res macro) (macroexpand expr)
-                (if macro
-                    (expand-macros res)
-                    (error "Unknown form in compute: ~A" res))))))
-
-(defun get-inline-tag (idx)
-    (aref #("0" "1" "2" "3" "4" "5" "6" "7" "8" "9"
-            "a" "b" "c" "d" "e" "f" "g" "h" "i" "j"
-            "k" "l" "m" "n" "o" "p" "q" "r" "s" "t"
-            "u" "v" "w" "x" "y" "z") idx))
-
 (defun compile-expr-sse (types ext-vars full_expr)
     (let ((aux-vars ()))
         (labels ((get-type (expr)
@@ -384,11 +286,8 @@
           (arr-map (make-hash-table)))
         (labels ((ref-symbol (sym)
                      (if (get sym 'let-clause)
-                         (concatenate 'string "tmp_" (symbol-name sym))
+                         (temp-symbol-name sym)
                          (ref-arg sym)))
-                 (ref-atom (atomv)
-                     (if (symbolp atomv) (ref-symbol atomv)
-                         (format nil "~S" atomv)))
                  (ref-arg (sym)
                      (let ((sym-type (gethash sym types))
                            (sym-id (gethash sym arg-map)))
@@ -408,275 +307,82 @@
                  (use-array (arr dim)
                      (let ((rarr (unwrap-factored arr)))
                          (setf (gethash rarr arr-map)
-                             (max dim (or (gethash rarr arr-map) 0)))))
-                 (compile-temporary (out var name dims)
-                     (let* ((const-dim (if (and dims (every #'numberp dims))
-                                           (reduce #'* dims)))
-                            (is-const (and const-dim (< const-dim 65536))))
-                         (write-string "float" out)
-                         (unless (or (null dims) is-const)
-                             (write-string "*" out))
-                         (format out " tmp_~A" (symbol-name var))
-                         (cond
-                             (is-const
-                                 (format out "[~A]" const-dim))
-                             (dims
-                                 (write-string " = (float*)ecl_alloc_atomic(" out)
-                                 (compile-form out
-                                     (reduce #'(lambda (a b) `(* ,a ,b)) dims))
-                                 (write-string ")" out)))
-                         (format out "; /* ~A */~%" name)))
-                 (compile-temp-assn (out var expr)
-                     ;; Special case for temporary buffers
-                     (ifmatch `(temporary ',name ,dims ,@_) expr
-                         (return-from compile-temp-assn
-                             (compile-temporary out var name dims)))
-                     (let ((var-type (gethash expr types))
-                           (var-name (concatenate 'string "tmp_"
-                                         (symbol-name var)))
-                           (var-fdiv (or (get var 'fdiv-users) 0)))
-                         (write-string (match var-type
-                                     ('array "cl_object")
-                                     ('float "float")
-                                     ('float-ptr "float*")
-                                     ('integer "int")
-                                     ('boolean "int")
-                                     (_ (error "Bad type ~A of ~A in ~A"
-                                            var-type expr full_expr)))
-                             out)
-                         (write-string " " out)
-                         (write-string var-name out)
-                         (write-string " = (" out)
-                         (compile-form out expr)
-                         (format out ");~%")
-                         (when (> var-fdiv 1)
-                             (format out "float ~A_fdiv = (1.0/~A);~%"
-                                 var-name var-name))))
-                 (compile-form (out form &optional stmtp)
-                     (match form
+                             (max dim (or (gethash rarr arr-map) 0))))))
+            (let*
+                ((spec-compiler
+                     (form-compiler (form)
                          ((type symbol sym)
-                             (write-string (ref-symbol sym) out))
-                         ((type atom _)
-                             (prin1 form out))
-                         (`(declare ,@_)
-                             (unless stmtp
-                                 (write-string "0" out)))
+                             (text (ref-symbol sym)))
                          (`(multivalue-data ,@_)
-                             (write-string (ref-arg form) out))
-                         (`(_grp ,x)
-                             (compile-form out x))
-                         (`(tmp-ref ,x)
-                             (compile-form out x))
-                         (`(ranging ,v ,@_)
-                             (if (ranging-loop-level form)
-                                 (write-string (symbol-name v) out)
-                                 (compile-form out v)))
-
-                         ((when (and (eql (gethash form types) 'float)
-                                     (> (or (get sym 'fdiv-users) 0) 1))
-                             `(/ ,x ,(type symbol sym)))
-                             (unless (and (numberp x)
-                                          (= x 1))
-                                 (write-string "(" out)
-                                 (compile-form out x)
-                                 (write-string ")*" out))
-                             (format out "~A_fdiv" (ref-symbol sym)))
-
-                         ((when (eql (gethash form types) 'float)
-                             `(/ ,x))
-                             (write-string "1.0/(" out)
-                             (compile-form out x)
-                             (write-string ")" out))
-
-                         (`(,(as op (or '+ '- '* '/ 'truncate 'rem 'ptr+
-                                        'and 'or '> '< '>= '<= '/= '=)) ,a ,b)
-                             (write-string "(" out)
-                             (compile-form out a)
-                             (write-string ")" out)
-                             (write-string (case op
-                                        ((+ - * / < > >= <=) (symbol-name op))
-                                        (/= "!=")
-                                        (= "==")
-                                        (ptr+ "+")
-                                        (and "&&")
-                                        (or "||")
-                                        (truncate "/")
-                                        (rem "%"))
-                                 out)
-                             (write-string "(" out)
-                             (compile-form out b)
-                             (write-string ")" out))
-                         (`(,(as op (or '+ '-)) ,a)
-                             (prin1 op out)
-                             (write-string "(" out)
-                             (compile-form out a)
-                             (write-string ")" out))
-
-                         (`(,(as op (or 'max 'min)) ,a ,b)
-                             (write-string "(((" out)
-                             (compile-form out a)
-                             (write-string ")" out)
-                             (write-string (if (eql op 'min) "<" ">") out)
-                             (write-string "(" out)
-                             (compile-form out b)
-                             (write-string "))?(" out)
-                             (compile-form out a)
-                             (write-string "):(" out)
-                             (compile-form out b)
-                             (write-string "))" out))
-
-                         ;; This is actually incorrect, because integer division
-                         ;; in C is equivalent to truncate, but we use them only
-                         ;; for positive numbers, where there is no difference.
-                         ;; However, as a special case, for powers of 2 we can
-                         ;; precisely emulate floor&rem using bit operations.
-                         ((when (and (eql (gethash form types) 'integer)
-                                     (= (logand b (1- b)) 0))
-                             `(,(as op (or 'floor 'mod))
-                                      ,a ,(type integer b)))
-                             (write-string "(((int)(" out)
-                             (compile-form out a)
-                             (if (eql op 'floor)
-                                 (format out "))>>~A)"
-                                     (do ((cnt 0 (1+ cnt))
-                                          (bv b (ash bv -1)))
-                                         ((<= bv 1) cnt)))
-                                 (format out "))&~A)" (1- b))))
-                         ((when (eql (gethash form types) 'integer)
-                             `(,(as op (or 'floor 'mod)) ,a ,b))
-                             (write-string "((int)((" out)
-                             (compile-form out a)
-                             (write-string ")" out)
-                             (write-string (case op
-                                               (floor "/")
-                                               (mod "%"))
-                                 out)
-                             (write-string "(" out)
-                             (compile-form out b)
-                             (write-string ")))" out))
-
-                         (`(,(as func (or 'floor 'ceiling 'sin 'cos 'exp 'expt))
-                               ,arg ,@rest)
-                             (write-string (case func
-                                        ('expt "pow")
-                                        ('ceiling "ceil")
-                                        (t (string-downcase (symbol-name func))))
-                                 out)
-                             (write-string "(" out)
-                             (compile-form out arg)
-                             (dolist (arg2 rest)
-                                 (write-string ", " out)
-                                 (compile-form out arg2))
-                             (write-string ")" out))
+                             (text (ref-arg form)))
                          (`(arr-dim ,arr ,idx)
                              (use-array arr idx)
-                             (when (= 0 idx)
-                                 (write-string "VECTORP(" out)
-                                 (compile-form out arr)
-                                 (write-string ")?(" out)
-                                 (compile-form out arr)
-                                 (write-string ")->vector.dim:" out))
-                             (write-string "(" out)
-                             (compile-form out arr)
-                             (format out ")->array.dims[~A]" idx))
+                             (let ((arr-str (recurse-str arr)))
+                                 (when (= 0 idx)
+                                     (text "VECTORP(~A)?(~A)->vector.dim:"
+                                         arr-str arr-str))
+                                 (text "(~A)->array.dims[~A]"
+                                     arr-str idx)))
                          (`(arr-ptr ,arr)
                              (use-array arr 0)
-                             (write-string "VECTORP(" out)
-                             (compile-form out arr)
-                             (write-string ")?(" out)
-                             (compile-form out arr)
-                             (write-string ")->vector.self.sf:(" out)
-                             (compile-form out arr)
-                             (write-string ")->array.self.sf" out))
-                         (`(ptr-deref ,ptr)
-                             (write-string "*(" out)
-                             (compile-form out ptr)
-                             (write-string ")" out))
-                         (`(if ,icond ,a ,b)
-                             (write-string "(" out)
-                             (compile-form out icond)
-                             (write-string ") ? (" out)
-                             (compile-form out a)
-                             (write-string ") : (" out)
-                             (compile-form out b)
-                             (write-string ")" out))
-                         (`(let* ,assns ,@body)
-                             (write-line "{" out)
-                             (dolist (assn assns)
-                                 (compile-temp-assn out
-                                     (first assn) (second assn)))
-                             (dolist (cmd body)
-                                 (compile-form out cmd t))
-                             (write-line "}" out))
-                         (`(setf ,target ,expr)
-                             (compile-form out target)
-                             (write-string " = (" out)
-                             (compile-form out expr)
-                             (write-string ")" out)
-                             (when stmtp (write-line ";" out)))
+                             (let ((arr-str (recurse-str arr)))
+                                 (text "VECTORP(~A)?(~A)->vector.self.sf:(~A)->array.self.sf"
+                                     arr-str arr-str arr-str)))
                          (`(loop-range
                               (ranging ,arg ,min ,max 1 nil 0 ,@_)
                               ,@body)
-                             (format out "{~%int ~A = " arg)
-                             (compile-form out min)
-                             (write-line ";" out)
+                             (text "{~%int ~A = " arg)
+                             (recurse min)
+                             (text ";~%")
                              (let* ((ext-vars (make-hash-table :test #'equal))
                                     (sse-code (compile-expr-sse types ext-vars `(progn ,@body))))
                                  (when sse-code
-                                     (write-string "{" out)
+                                     (text "{")
                                      (maphash #'(lambda (v n)
-                                                    (format out "__m128 ~A_4 = _mm_set1_ps(~A);~%" v v))
+                                                    (text "__m128 ~A_4 = _mm_set1_ps(~A);~%" v v))
                                          ext-vars)
-                                     (format out "for (; ~A <= (" arg)
-                                     (compile-form out max)
-                                     (format out ")-3; ~A += 4) {~%" arg)
-                                     (write-string sse-code out)
-                                     (write-line "}}" out)))
-                             (format out "for (; ~A <= " arg)
-                             (compile-form out max)
-                             (format out "; ~A++) {~%" arg)
+                                     (text "for (; ~A <= (" arg)
+                                     (recurse max)
+                                     (text ")-3; ~A += 4) {~%" arg)
+                                     (text sse-code)
+                                     (text "}}~%")))
+                             (text "for (; ~A <= " arg)
+                             (recurse max)
+                             (text "; ~A++) {~%" arg)
                              (dolist (cmd body)
-                                 (compile-form out cmd t))
-                             (write-line "}}" out))
+                                 (recurse cmd :stmt-p t))
+                             (text "}}~%"))
                          (`(loop-range
                               (ranging ,arg ,min ,max ,delta ,@_)
                               ,@body)
                              (when (eql (ranging-loop-level (second form)) 0)
                                  (format t "SSE inapplicable: ~A~%" (second form)))
-                             (format out "{~%int ~A;~%for(~A = " arg arg)
-                             (compile-form out (if (> delta 0) min max))
-                             (format out "; ~A ~A " arg (if (> delta 0) "<=" ">="))
-                             (compile-form out (if (> delta 0) max min))
-                             (format out "; ~A += ~A) {~%" arg delta)
+                             (text "{~%int ~A;~%for(~A = " arg arg)
+                             (recurse (if (> delta 0) min max))
+                             (text "; ~A ~A " arg (if (> delta 0) "<=" ">="))
+                             (recurse (if (> delta 0) max min))
+                             (text "; ~A += ~A) {~%" arg delta)
                              (dolist (cmd body)
-                                 (compile-form out cmd t))
-                             (write-line "}}" out))
-                         ((when stmtp `(progn ,@body))
-                             (dolist (cmd body)
-                                 (compile-form out cmd t)))
-                         (`(progn ,cmd1 ,@rest)
-                             (compile-form out cmd1)
-                             (dolist (cmd rest)
-                                 (write-string ", " out)
-                                 (compile-form out cmd)))
+                                 (recurse cmd :stmt-p t))
+                             (text "}}~%"))
                          (`(safety-check ,checks ,@body)
                              (dolist (check checks)
-                                 (write-string "if (!(" out)
-                                 (compile-form out (first check))
-                                 (write-line "))" out)
-                                 (format out "    FEerror(\"Safety check failed: ~A\",0);~%"
+                                 (text "if (!(")
+                                 (recurse (first check))
+                                 (text "))~%    FEerror(\"Safety check failed: ~A\",0);~%"
                                      (second check)))
                              (dolist (cmd body)
-                                 (compile-form out cmd t)))
-                         (_
-                             (error "Unrecognized form in compile-generic: ~A" form)))))
-            (let* ((code   (with-output-to-string (out)
-                               (write-line "{" out)
-                               (compile-form out full_expr)
-                               (write-line "}" out)))
-                   (checks (with-output-to-string (out)
-                               (maphash
-                                   #'(lambda (arr dim)
+                                 (recurse cmd :stmt-p t)))))
+
+                 (*cg-type-table* types)
+                 (code (call-form-compilers
+                           (list spec-compiler
+                                 #'compile-generic-c
+                                 #'compile-c-inline-temps)
+                           full_expr :stmt-p t))
+                 (checks (with-output-to-string (out)
+                             (maphash
+                                 #'(lambda (arr dim)
                                        (format out "{ cl_object arr = ~A; /* ~A */~%"
                                            (ref-arg arr) arr)
                                        (format out
@@ -697,7 +403,7 @@
                     (ffi:clines "#include <math.h>")
                     (ffi:clines "#include <emmintrin.h>")
                     (ffi:c-inline ,(nreverse args) ,(nreverse arg-types)
-                         :void ,(concatenate 'string checks code)))))))
+                         :void ,(format nil "~A{~%~A}~%" checks code)))))))
 
 (define-compiler-macro compute (&whole original name idxspec expr
                                    &key with where carrying parallel cluster-cache)
