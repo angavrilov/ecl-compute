@@ -211,6 +211,9 @@
         (text ")")))
 
 (def-form-compiler compile-generic-c (form form-type stmt-p)
+    ((type float fv)
+        (text "~Sf" fv))
+
     ((type number nv)
         (text "~S" nv))
 
@@ -231,7 +234,7 @@
 
     ((when (eql form-type 'float)
         `(/ ,x))
-        (text "1.0/(")
+        (text "1.0f/(")
         (recurse x)
         (text ")"))
 
@@ -301,10 +304,13 @@
     (`(,(as func (or 'floor 'ceiling 'sin 'cos 'exp 'expt))
           ,arg ,@rest)
         (text "~A("
-            (case func
-                ('expt "pow")
-                ('ceiling "ceil")
-                (t (string-downcase (symbol-name func)))))
+            (ecase func
+                (expt "powf")
+                (ceiling "ceilf")
+                (floor "floorf")
+                (sin "sinf")
+                (cos "cosf")
+                (exp "expf")))
         (recurse arg)
         (dolist (arg2 rest)
             (text ", ")
@@ -379,5 +385,5 @@
             (recurse expr)
             (text ");~%")
             (when (> var-fdiv 1)
-                (text "float ~A_fdiv = (1.0/~A);~%"
+                (text "float ~A_fdiv = (1.0f/~A);~%"
                     var-name var-name)))))

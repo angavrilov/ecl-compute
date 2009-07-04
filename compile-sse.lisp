@@ -376,28 +376,23 @@
                     (ffi:c-inline ,(nreverse args) ,(nreverse arg-types)
                          :void ,(format nil "~A{~%~A}~%" checks code)))))))
 
-(define-compiler-macro compute (&whole original name idxspec expr
-                                   &key with where carrying parallel cluster-cache)
-    (handler-bind ((condition
-                       #'(lambda (cond)
-                             (format t "~%Fast C compilation failed:~%   ~A~%" cond)
-                             (format t "Reverting to ordinary lisp.~%")
-                             (return-from compute original))))
-        (let* ((*current-compute* original)
-               (*consistency-checks* (make-hash-table :test #'equal)))
-            (multiple-value-bind
-                    (loop-expr loop-list range-list)
-                    (make-compute-loops name idxspec expr with where carrying cluster-cache)
-                (let* ((nomacro-expr (expand-macros loop-expr))
-                       (nolet-expr   (expand-let nomacro-expr))
-                       (noiref-expr (simplify-iref nolet-expr))
-                       (ref-list    (collect-arefs noiref-expr))
-                      ; (opt-expr    (optimize-tree noiref-expr))
-                       (noaref-expr (expand-aref noiref-expr))
-                       (check-expr  (insert-checks noaref-expr)))
-                    (wrap-compute-sync-data :host ref-list
-                        (wrap-compute-parallel parallel range-list check-expr
-                            #'(lambda (code)
-                                 `(let ((*current-compute* ',original))
-                                      ,(compile-expr-generic
-                                           (code-motion code :pull-symbols t)))))))))))
+(defun do-make-c-compute (original name idxspec expr
+                               &key with where carrying parallel cluster-cache)
+    (let* ((*current-compute* original)
+           (*consistency-checks* (make-hash-table :test #'equal)))
+        (multiple-value-bind
+                (loop-expr loop-list range-list)
+                (make-compute-loops name idxspec expr with where carrying cluster-cache)
+            (let* ((nomacro-expr (expand-macros loop-expr))
+                   (nolet-expr   (expand-let nomacro-expr))
+                   (noiref-expr (simplify-iref nolet-expr))
+                   (ref-list    (collect-arefs noiref-expr))
+                  ; (opt-expr    (optimize-tree noiref-expr))
+                   (noaref-expr (expand-aref noiref-expr))
+                   (check-expr  (insert-checks noaref-expr)))
+                (wrap-compute-sync-data :host ref-list
+                    (wrap-compute-parallel parallel range-list check-expr
+                        #'(lambda (code)
+                             `(let ((*current-compute* ',original))
+                                  ,(compile-expr-generic
+                                       (code-motion code :pull-symbols t))))))))))

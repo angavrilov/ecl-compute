@@ -61,6 +61,15 @@
   #+cuda
     (cuda-valid nil))
 
+#+cuda
+(defun multivalue-cuda-dimension (mv idx)
+    (let ((mvarr (multivalue-data-array mv)))
+        (if (= idx (1- (array-rank mvarr)))
+            (/ (cuda:linear-pitch
+                   (multivalue-cuda-buffer mv))
+                4)
+            (array-dimension mvarr idx))))
+
 (defun multivalue-wrap-sync (sync-spec body)
   #-cuda body
   #+cuda
@@ -124,6 +133,13 @@
         (multivalue-wrap-sync
             (list (or use-mode :unknown) mv)
            `(multivalue-data-array ,mv))))
+
+(defun multivalue-data-f (mv use-mode)
+    (ecase use-mode
+        (:read
+            (multivalue-data mv :read))
+        (:write-all
+            (multivalue-data mv :write-all))))
 
 (defmacro def-multivalue (&whole defspec name indexes
                              &key (layout (mapcar #'car indexes)))

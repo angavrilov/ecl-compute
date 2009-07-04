@@ -108,6 +108,14 @@
             *consistency-checks*)
         clst))
 
+(defun get-check-level-set ()
+    (let ((levels nil))
+        (maphash
+            #'(lambda (expr cnt)
+                  (pushnew (min-loop-level expr) levels))
+            *consistency-checks*)
+        levels))
+
 (defmacro safety-check (checks &body body)
     (let ((check-code (mapcar
                            #'(lambda (expr)
@@ -317,19 +325,20 @@
            (minv    (third range))
            (maxv    (fourth range))
            (delta   (fifth range))
-           (size    (- size (mod size (abs delta))))
            (clidx   (gensym (symbol-name index)))
            (nrange `(ranging ,clidx ,minv ,maxv
-                        ,(if (> delta 0) size (- size))
+                        ,(* delta size)
                         ,(ranging-order-flag range) nil)))
         (setf (get clidx 'band-master) index)
         (setf (get clidx 'is-cluster) t)
         (setf (third range)
             (if (> delta 0) nrange
-                `(max ,minv (- ,nrange ,(1- size)))))
+                `(max ,minv (- ,nrange ,(* (abs delta)
+                                           (1- size))))))
         (setf (fourth range)
             (if (< delta 0) nrange
-                `(min ,maxv (+ ,nrange ,(1- size)))))
+                `(min ,maxv (+ ,nrange ,(* (abs delta)
+                                           (1- size))))))
         (values
             (nconc
                 (subseq range-list 0 pos)
@@ -337,10 +346,37 @@
                 (subseq range-list pos))
             nrange)))
 
+(defun get-range-value (minv maxv)
+    (match (cons (optimize-tree (unwrap-factored minv))
+                 (optimize-tree (unwrap-factored maxv)))
+        ((when (equal x y)
+            `(,x
+                 . (min ,maxv (+ ,(type number d) ,y))))
+            (values d x nil maxv))
+        ((when (equal x y)
+            `((max ,minv ,x)
+                 . (min ,maxv (+ ,(type number d) ,y))))
+            (values d x minv maxv))
+        ((when (equal x y)
+            `((max ,minv ,(as bv `(+ ,(type number d) ,y)))
+                 . ,x))
+            (values (- d) bv minv nil))
+        ((when (equal x y)
+            `((max ,minv ,(as bv `(+ ,(type number d) ,y)))
+                 . (min ,maxv ,x)))
+            (values (- d) bv minv maxv))
+        (`(,(type number a) ,(type number b))
+            (values (- b a) a nil nil))
+        (x
+            (format t "???: ~A" x)
+            nil)))
+
 (defparameter *loop-cluster-size* 1024)
 
-(defun make-cluster-refs (range-list vars replace-tbl with)
-    (if (null vars)
+(defun make-cluster-refs (range-list vars replace-tbl with
+                             &key force-cluster)
+    (if (and (null vars)
+             (not force-cluster))
         (values range-list with nil nil)
         (let* ((index (car (last range-list)))
                (index-var (second index))
@@ -383,9 +419,14 @@
             (setf (fifth cache-index) (abs (fifth cache-index))) ; delta
             (setf (sixth cache-index) nil) ;order
             (setf (seventh cache-index) 0) ;level
-            (values range-list in-with calc-loop symtbl))))
+            (values range-list
+                (if symtbl in-with with)
+                (if symtbl calc-loop)
+                symtbl))))
 
-(defun make-compute-loops (name idxspec expr with-arg where-arg carrying cluster-cache)
+(defun make-compute-loops (name idxspec expr with-arg where-arg
+                              carrying cluster-cache
+                              &key force-cluster)
     (multiple-value-bind
             (indexes layout dimensions) (get-multivalue-info name)
         (let* ((idxtab    (mapcar #'cons indexes idxspec))
@@ -406,7 +447,8 @@
                 (multiple-value-bind
                         (range-list in-with cluster-loop cluster-syms)
                         (make-cluster-refs
-                            range-list cluster-cache replace-tbl with)
+                            range-list cluster-cache replace-tbl with
+                            :force-cluster force-cluster)
                     ;; Set the level tags
                     (correct-loop-levels range-list 0)
                     ;; Create actual loops
@@ -434,7 +476,8 @@
                                 (wrap-symbol-macrolet cluster-syms carry-expr)
                                 loop-list range-list))))))))
 
-(defmacro compute (&whole original name idxspec expr &key with where carrying parallel cluster-cache)
+(defun do-make-lisp-compute (original name idxspec expr
+                                &key with where carrying parallel cluster-cache)
     (let* ((*current-compute* original)
            (*consistency-checks* (make-hash-table :test #'equal)))
         (multiple-value-bind

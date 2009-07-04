@@ -34,7 +34,9 @@
                   "threads.lisp"
                   "compute.lisp"
                   "compile.lisp"
-                  "compile-sse.lisp"))
+                  "compile-sse.lisp"
+                  #+cuda "compile-cuda.lisp"
+                  "compute-macros.lisp"))
         (load-interp module-name))
 
     (let ((c::*cc-flags*

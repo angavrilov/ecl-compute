@@ -240,8 +240,8 @@
                 (reduce #'min-level
                     (mapcar #'min-loop-level expr))))))
 
-(defun arr-dim (arr idx)
-    (nth idx (array-dimensions arr)))
+(defmacro arr-dim (arr idx)
+    `(array-dimension ,arr ,idx))
 
 (defun force-integer (expr)
     (if (integerp expr) expr nil))
