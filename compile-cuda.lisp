@@ -271,7 +271,8 @@
            (*range-cache* (make-hash-table))
            (*minlevel-cache* (make-hash-table))
            (*consistency-checks* (make-hash-table :test #'equal))
-           (*loop-cluster-size* 64))
+           (*loop-cluster-size* 64)
+           (*align-cluster* 16))
         (multiple-value-bind
                 (loop-expr loop-list range-list)
                 (make-compute-loops name idxspec expr with

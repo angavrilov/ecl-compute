@@ -302,6 +302,13 @@
         (recurse b)
         (text ")))"))
 
+    ((when (eql form-type 'integer)
+        `(ceiling ,a ,(type integer b)))
+        (text "((int)(((")
+        (recurse a)
+        (text ")+~A)/~A))"
+            (1- b) b))
+
     (`(,(as func (or 'floor 'ceiling 'sin 'cos 'exp 'expt))
           ,arg ,@rest)
         (text "~A("

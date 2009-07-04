@@ -319,26 +319,46 @@
             loop-expr
             (wrap-symbol-macrolet carry-table carry-body))))
 
-(defun cluster-loop (range-list range size)
+(defun cluster-loop (range-list range size &key align)
     (let* ((pos     (position range range-list))
            (index   (second range))
            (minv    (third range))
            (maxv    (fourth range))
            (delta   (fifth range))
            (clidx   (gensym (symbol-name index)))
-           (nrange `(ranging ,clidx ,minv ,maxv
+           (new-minv (if align
+                         (if (< delta 0) minv
+                             `(* (floor ,minv ,align) ,align))
+                         minv))
+           (new-maxv (if align
+                         (if (> delta 0) maxv
+                             `(- (* (ceiling (+ ,maxv 1) ,align) ,align) 1))
+                         maxv))
+           (nrange `(ranging ,clidx
+                        ,(simplify-index new-minv)
+                        ,(simplify-index new-maxv)
                         ,(* delta size)
                         ,(ranging-order-flag range) nil)))
         (setf (get clidx 'band-master) index)
         (setf (get clidx 'is-cluster) t)
         (setf (third range)
-            (if (> delta 0) nrange
-                `(max ,minv (- ,nrange ,(* (abs delta)
-                                           (1- size))))))
+            (simplify-index
+                (if (> delta 0)
+                    (if align
+                        `(max ,minv ,nrange)
+                        nrange)
+                    `(max ,minv
+                         ,(optimize-tree
+                              `(- ,nrange ,(* (abs delta)
+                                              (1- size))))))))
         (setf (fourth range)
-            (if (< delta 0) nrange
-                `(min ,maxv (+ ,nrange ,(* (abs delta)
-                                           (1- size))))))
+            (simplify-index
+                (if (< delta 0)
+                    (if align
+                        `(min ,maxv ,nrange)
+                        nrange)
+                    `(min ,maxv (+ ,nrange ,(* (abs delta)
+                                               (1- size)))))))
         (values
             (nconc
                 (subseq range-list 0 pos)
@@ -371,7 +391,14 @@
             (format t "???: ~A" x)
             nil)))
 
+(defun get-range-cluster-base (range)
+    (multiple-value-bind
+            (dim base)
+            (get-range-value (third range) (fourth range))
+        (or base (third range))))
+
 (defparameter *loop-cluster-size* 1024)
+(defparameter *align-cluster* nil)
 
 (defun make-cluster-refs (range-list vars replace-tbl with
                              &key force-cluster)
@@ -382,10 +409,11 @@
                (index-var (second index))
                ;; Cluster the loop (alters ranges)
                (range-list
-                   (cluster-loop range-list index *loop-cluster-size*))
+                   (cluster-loop range-list index *loop-cluster-size*
+                       :align *align-cluster*))
                ;; Build a let map fragment
                (cache-index (copy-list index))
-               (cluster-base (third index))
+               (cluster-base (get-range-cluster-base index))
                (symtbl
                    (mapcar
                        #'(lambda (name)
