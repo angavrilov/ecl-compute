@@ -102,6 +102,7 @@
 
 
 (defparameter *cg-type-table* nil)
+(defparameter *cg-full-expr* nil)
 
 (defun do-make-form-compiler (form-arg args body)
    `(let ((,form-arg cg-form)
@@ -380,7 +381,7 @@
                     ('integer "int")
                     ('boolean "int")
                     (_ (error "Bad type ~A of ~A in ~A"
-                           var-type expr full_expr)))
+                           var-type expr *cg-full-expr*)))
                 var-name)
             (recurse expr)
             (text ");~%")

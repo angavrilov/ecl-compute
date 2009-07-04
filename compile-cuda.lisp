@@ -249,6 +249,7 @@
                                 :stmt-p t))))
 
                  (*cg-type-table* types)
+                 (*cg-full-expr* full_expr)
                  (code (call-form-compilers
                            (list args-compiler
                                  #'compile-generic-c
@@ -266,6 +267,9 @@
 (defun do-make-cuda-compute (original name idxspec expr
                                 &key with where carrying parallel cluster-cache)
     (let* ((*current-compute* original)
+           (*simplify-cache* (make-hash-table))
+           (*range-cache* (make-hash-table))
+           (*minlevel-cache* (make-hash-table))
            (*consistency-checks* (make-hash-table :test #'equal))
            (*loop-cluster-size* 64))
         (multiple-value-bind

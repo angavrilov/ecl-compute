@@ -479,6 +479,9 @@
 (defun do-make-lisp-compute (original name idxspec expr
                                 &key with where carrying parallel cluster-cache)
     (let* ((*current-compute* original)
+           (*simplify-cache* (make-hash-table))
+           (*range-cache* (make-hash-table))
+           (*minlevel-cache* (make-hash-table))
            (*consistency-checks* (make-hash-table :test #'equal)))
         (multiple-value-bind
                 (loop-expr loop-list range-list)
