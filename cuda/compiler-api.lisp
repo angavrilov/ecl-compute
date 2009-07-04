@@ -83,7 +83,7 @@
             (setf (gethash code *compiled-cache*)
                 (do-compile-kernel code)))))
 
-(defmacro kernel (args code &key (grid-size '(1 1)) (block-size '(1 1 1)))
+(defmacro kernel (args code &key (grid-size '(1 1)) (block-size '(1 1 1)) (name "kernel_func"))
     (assert (= (length block-size) 3)
         (block-size) "Bad block size spec: ~A" block-size)
     (assert (= (length grid-size) 2)
@@ -95,9 +95,9 @@
             (let* ((full-code
                        (format nil
                            "extern \"C\" __global__ __device__
-                            void kernel_func(~{~A~^, ~}) {~%~A~%}~%"
-                           arg-strings code))
+                            void ~A(~{~A~^, ~}) {~%~A~%}~%"
+                           name arg-strings code))
                    (compiled-code (compile-kernel full-code)))
-                `(let ((,func-var (load-kernel '("kernel_func" . ,compiled-code))))
+                `(let ((,func-var (load-kernel '(,name . ,compiled-code))))
                      ,@arg-forms
                      (launch-kernel ,func-var ,arg-size ,@block-size ,@grid-size))))))

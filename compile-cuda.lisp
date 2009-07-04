@@ -16,7 +16,7 @@
                 tree))
         (eql tree sym)))
 
-(defun compile-expr-cuda (block-dim full_expr)
+(defun compile-expr-cuda (name block-dim full_expr)
     (let ((types (derive-types full_expr))
           (args  ())
           (top-found nil)
@@ -258,6 +258,7 @@
                  `(cuda:kernel
                       ,(nreverse args)
                       ,code
+                      :name ,name
                       :grid-size ,(subseq
                                       (concatenate 'list
                                           (nreverse dims) '(1 1))
@@ -291,5 +292,7 @@
                 (wrap-compute-sync-data :cuda-device ref-list
                     `(let ((*current-compute* ',original))
                          ,(insert-checks nil)
-                         ,(compile-expr-cuda *loop-cluster-size*
+                         ,(compile-expr-cuda
+                              (format nil "compute_~A" name)
+                              *loop-cluster-size*
                               (code-motion noaref-expr :pull-symbols t))))))))
