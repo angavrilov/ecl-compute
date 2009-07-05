@@ -239,6 +239,19 @@
             (funcall fun (car lst))
             (mapcar-save-old fun (cdr lst)))))
 
+(defmacro list*-save-old (old &rest elts)
+    (if (null (cdr elts))
+        (car elts)
+        (let ((sym (gensym)))
+            `(let ((,sym ,old))
+                 (cons-save-old ,sym
+                     ,(car elts)
+                     (list*-save-old (cdr ,sym)
+                         ,@(cdr elts)))))))
+
+(defmacro list-save-old (old &rest elts)
+    `(list*-save-old ,old ,@elts nil))
+
 (defun simplify-rec (engine expr cache)
     (if (or (atom expr) (gethash expr cache))
         expr
@@ -260,6 +273,31 @@
                             expr)))
            (subs-res (funcall engine rec-res expr)))
         (if (null subs-res) rec-res subs-res)))
+
+(defun simplify-rec-once-struct (engine expr)
+    (labels
+           ((process-dumb (expr)
+                 (match expr
+                     (`(,(as op (or 'let* 'let)) ,assns ,@code)
+                         (list*-save-old expr
+                             op
+                             (mapcar-save-old
+                                 #'(lambda (assn)
+                                       (list-save-old assn
+                                           (first assn)
+                                           (recurse (second assn))))
+                                 assns)
+                             (mapcar-save-old
+                                 #'recurse code)))
+                     ((type atom _)
+                         expr)
+                     (_
+                         (mapcar-save-old #'recurse expr))))
+            (recurse (expr)
+                (let* ((rec-res (process-dumb expr))
+                       (subs-res (funcall engine rec-res expr)))
+                    (if (null subs-res) rec-res subs-res))))
+        (recurse expr)))
 
 (defparameter *simplify-cache* (make-hash-table))
 
