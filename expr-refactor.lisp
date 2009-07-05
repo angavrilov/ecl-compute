@@ -218,27 +218,32 @@
             level)
         (_ nil)))
 
-(defun min-loop-level (expr)
+(defun get-loop-levels (expr)
     (use-cache (expr *minlevel-cache*)
         (match expr
             ((type atom _)
                 nil)
             (`(ranging ,@_)
-                (ranging-loop-level expr))
+                (list (ranging-loop-level expr)))
             (`(temporary ,@_)
                 nil)
             (`(tmp-ref ,tmp ,@args)
-                (reduce #'min-level
-                    (mapcar #'min-loop-level args)
+                (reduce #'union
+                    (mapcar #'get-loop-levels args)
                     :initial-value
-                        (temporary-level tmp)))
+                        (list (temporary-level tmp))))
             (`(ptr-deref ,ptr)
-                (min-level
-                    (min-loop-level ptr)
-                    (temporary-level ptr)))
+                (union
+                    (get-loop-levels ptr)
+                    (list (temporary-level ptr))))
             (_
-                (reduce #'min-level
-                    (mapcar #'min-loop-level expr))))))
+                (reduce #'union
+                    (mapcar #'get-loop-levels expr))))))
+
+(defun min-loop-level (expr)
+    (reduce #'min-level
+        (get-loop-levels expr)
+        :initial-value nil))
 
 (defmacro arr-dim (arr idx rank)
     `(array-dimension ,arr ,idx))

@@ -49,6 +49,8 @@
 (defvar *nvcc* "nvcc")
 (defvar *nvcc-flags* "")
 
+(defvar *print-kernel-code* nil)
+
 (defun do-compile-kernel (code)
     (let* ((tmpname (ext:mkstemp #P"TMP:CUDAKERNEL"))
            (srcname (make-pathname :type "cu" :defaults tmpname))
@@ -61,6 +63,8 @@
         (with-open-file (src srcname :direction :output
                             :if-exists :supersede)
             (write-string code src))
+        (when *print-kernel-code*
+            (format t "Compiling:~%~A" code))
         (unwind-protect
             (progn
                 (format t "Running command:~%  ~A~%" cmd)

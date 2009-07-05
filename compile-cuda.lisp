@@ -185,6 +185,21 @@
                                 (setf (get sym 'let-clause) t)
                                 (ref-arg (temp-symbol-name sym) form)
                                 (text (temp-symbol-name sym))))
+                        ;; Temporaries are allocated in shared memory,
+                        ;; unless they are explicitly localized.
+                        (`(setf-tmp ,var (temporary ',name nil ,_ :local))
+                            (text "float ~A;~%"
+                                (temp-symbol-name var)))
+                        ((when (every #'numberp dims)
+                            `(setf-tmp ,var (temporary ',name ,dims ,@_)))
+                            (let* ((const-dim (if dims (reduce #'* dims))))
+                                (if (and const-dim (> const-dim 1024))
+                                    (error "Temporary is too big: ~A" form))
+                                (text "__shared__ float ~A"
+                                    (temp-symbol-name var))
+                                (when const-dim
+                                    (text "[~A]" const-dim))
+                                (text ";~%")))
                         ;; Array variables are skipped
                         ((when (eql (gethash expr types) 'array)
                              `(setf-tmp ,_ ,expr))
@@ -201,17 +216,6 @@
                                 (when (> (or (get var 'fdiv-users) 0) 1)
                                     (ref-arg (format nil "~A_fdiv" name)
                                         `(/ 1.0 ,expr) 'float))))
-                        ;; Temporaries are allocated in shared memory
-                        ((when (every #'numberp dims)
-                            `(setf-tmp ,var (temporary ',name ,dims ,@_)))
-                            (let* ((const-dim (if dims (reduce #'* dims))))
-                                (if (and const-dim (> const-dim 1024))
-                                    (error "Temporary is too big: ~A" form))
-                                (text "__shared__ float ~A"
-                                    (temp-symbol-name var))
-                                (when const-dim
-                                    (text "[~A]" const-dim))
-                                (text ";~%")))
                         ;; Shifted buffer ptrs
                         ((when (eql (gethash expr types) 'float-ptr)
                              `(setf-tmp ,var ,expr))
@@ -271,6 +275,62 @@
                                       0 2)
                       :block-size (,block-dim 1 1))))))
 
+(defun localize-temps (expr ref-list range-list)
+    (let* ((inner-index
+               (second (car (last range-list))))
+           (cluster-level
+               (mapcar #'ranging-loop-level
+                   (remove-if-not
+                       #'(lambda (rg)
+                             (and
+                                 (eql inner-index
+                                     (get (second rg) 'band-master))
+                                 (get (second rg) 'is-cluster)))
+                       range-list)))
+           (local-temps
+              (remove-if-not
+                  #'(lambda (ref-entry)
+                        (ifmatch
+                                `(temporary ,_ ,dims 0 ,@_)
+                                (first ref-entry)
+                            (and
+                                (= (length dims) 1)
+                                (null
+                                    (set-difference
+                                        (third ref-entry) (second ref-entry)
+                                        :test #'equal))
+                                (every
+                                    #'(lambda (x)
+                                          (and
+                                              (= (length x) 1)
+                                              (equal
+                                                  (set-difference
+                                                      (get-loop-levels (first x))
+                                                      cluster-level)
+                                                  '(0))))
+                                    (append
+                                        (third ref-entry) (second ref-entry))))))
+                  ref-list))
+           (replacement-tbl
+               (make-hash-table :test #'equal)))
+        (if (null local-temps)
+            expr
+            (progn
+                (dolist (ref-entry local-temps)
+                    (setf
+                        (gethash
+                            (first ref-entry) replacement-tbl)
+                        `(temporary
+                             ,(second (first ref-entry))
+                             nil 0 :local)))
+                (simplify-rec-once
+                    #'(lambda (form old-form)
+                          (match form
+                              ((when (gethash temp replacement-tbl)
+                                  `(tmp-ref ,temp ,@_))
+                                  `(tmp-ref ,(gethash temp replacement-tbl)))))
+                    expr)))))
+
 (defun do-make-cuda-compute (original name idxspec expr
                                 &key with where carrying parallel cluster-cache)
     (let* ((*current-compute* original)
@@ -290,7 +350,8 @@
                    (noiref-expr (simplify-iref nolet-expr))
                    (ref-list    (collect-arefs noiref-expr))
                   ; (opt-expr    (optimize-tree noiref-expr))
-                   (noaref-expr (expand-aref noiref-expr)))
+                   (ltemp-expr (localize-temps noiref-expr ref-list range-list))
+                   (noaref-expr (expand-aref ltemp-expr)))
                 (let ((c-levels (remove nil (get-check-level-set))))
                     (unless (null c-levels)
                         (error "Safety checks not supported by CUDA:~%  ~A"

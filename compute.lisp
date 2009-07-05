@@ -212,7 +212,7 @@
                              range))))
             (wrap-parallel range code :gen-func gen-func))))
 
-(defmacro temporary (name dims level)
+(defmacro temporary (name dims level &optional mode)
     (if (null dims)
         0.0
         `(the (array single-float)
