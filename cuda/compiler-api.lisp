@@ -99,7 +99,7 @@
             (let* ((full-code
                        (format nil
                            "extern \"C\" __global__ __device__
-                            void ~A(~{~A~^, ~}) {~%~A~%}~%"
+void ~A(~{~A~^, ~}) {~%~A~%}~%"
                            name arg-strings code))
                    (compiled-code (compile-kernel full-code)))
                 `(let ((,func-var (load-kernel '(,name . ,compiled-code))))

@@ -22,11 +22,56 @@
                 tree))
         (eql tree sym)))
 
+(defvar *cg-shared-setfs* nil)
+
+(defmacro flush-shared-setfs ()
+   `(when *cg-shared-setfs*
+        (text "if (threadIdx.x == 0) {~%")
+        (dolist (sv (nreverse *cg-shared-setfs*))
+            (recurse sv :stmt-p t))
+        (text "}~%__syncthreads();~%")
+        (setf *cg-shared-setfs* nil)))
+
+(def-form-compiler compile-shared-temps (form stmt-p)
+    (`(let* ,assns ,@body)
+        (unless stmt-p
+            (error "Let in a non-stmt context: ~A" form))
+        (text "{~%")
+        (dolist (assn assns)
+            (recurse
+                `(setf-tmp ,(first assn) ,(second assn))))
+        (flush-shared-setfs)
+        (dolist (cmd body)
+            (recurse cmd :stmt-p t))
+        (text "}~%"))
+
+    (`(setf-tmp ,var ,expr)
+        (let ((var-type (gethash expr *cg-type-table*))
+              (var-name (temp-symbol-name var))
+              (var-fdiv (or (get var 'fdiv-users) 0)))
+            (text "__shared__ ~A ~A;~%"
+                (match var-type
+                    ('float "float")
+                    ('float-ptr "float*")
+                    ('integer "int")
+                    ('boolean "int")
+                    (_ (error "Bad type ~A of ~A in ~A"
+                           var-type expr *cg-full-expr*)))
+                var-name)
+            (push `(setf ,var ,expr) *cg-shared-setfs*)
+            (when (> var-fdiv 1)
+                (let ((sym (make-symbol
+                               (format nil "~A_fdiv" var)))
+                      (dexpr `(/ ,var)))
+                    (setf (get sym 'let-clause) t)
+                    (setf (gethash dexpr *cg-type-table*) 'float)
+                    (text "__shared__ float ~A_fdiv;~%" var-name)
+                    (push `(setf ,sym ,dexpr) *cg-shared-setfs*))))))
+
 (defun compile-expr-cuda (name block-dim full_expr)
     (let ((types (derive-types full_expr))
           (args  ())
           (top-found nil)
-          (init-calcs nil)
           (dims  ()))
         (labels ((ref-arg (name expr &optional etype)
                      (let ((sym-type (or etype
@@ -125,7 +170,8 @@
                         ((type symbol sym)
                             (text (temp-symbol-name sym)))
                         ;; Convert outer loops to block dimensions
-                        ((when (> level 0)
+                        ((when (and (< (length dims) 2)
+                                    (> level 0))
                             `(loop-range
                                  (ranging ,arg ,min ,max ,step nil ,level ,@_)
                                   ,@body))
@@ -140,8 +186,7 @@
                                     (1 "blockIdx.x")
                                     (2 "blockIdx.y"))
                                 step)
-                            (if (or (/= (length body) 1)
-                                    (>= (length dims) 2))
+                            (if (/= (length body) 1)
                                 (dolist (stmt body)
                                     (recurse stmt
                                         :use-stack
@@ -216,43 +261,15 @@
                                 (when (> (or (get var 'fdiv-users) 0) 1)
                                     (ref-arg (format nil "~A_fdiv" name)
                                         `(/ 1.0 ,expr) 'float))))
-                        ;; Shifted buffer ptrs
-                        ((when (eql (gethash expr types) 'float-ptr)
-                             `(setf-tmp ,var ,expr))
-                            (text "__shared__ float *~A;~%"
-                                (temp-symbol-name var))
-                            (text "if (threadIdx.x == 0) { ~A = ("
-                                (temp-symbol-name var))
-                            (setf init-calcs t)
-                            (recurse expr)
-                            (text "); }~%"))
-                        ((when (eql (gethash expr types) 'float)
-                             `(setf-tmp ,var ,expr))
-                            (text "__shared__ float ~A;~%"
-                                (temp-symbol-name var))
-                            (when (> (or (get var 'fdiv-users) 0) 1)
-                                (text "__shared__ float ~A_fdiv;~%"
-                                    (temp-symbol-name var)))
-                            (text "if (threadIdx.x == 0) { ~A = ("
-                                (temp-symbol-name var))
-                            (setf init-calcs t)
-                            (recurse expr)
-                            (text "); ")
-                            (when (> (or (get var 'fdiv-users) 0) 1)
-                                (text "~A_fdiv = 1.0f/~A; "
-                                    (temp-symbol-name var)
-                                    (temp-symbol-name var)))
-                            (text "}~%"))
                         ;; Loops switch to the next mode
                         (`(loop-range ,@_)
                             (when top-found
                                 (error "Multiple top-level loops"))
                             (setf top-found t)
-                            (when init-calcs
-                                (text "__syncthreads();~%"))
                             (recurse form
                                 :use-stack
                                 (list grid-compiler
+                                      #'compile-shared-temps
                                       #'compile-generic-c
                                       #'compile-generic
                                       #'compile-c-inline-temps)
@@ -260,8 +277,10 @@
 
                  (*cg-type-table* types)
                  (*cg-full-expr* full_expr)
+                 (*cg-shared-setfs* nil)
                  (code (call-form-compilers
                            (list args-compiler
+                                 #'compile-shared-temps
                                  #'compile-generic-c
                                  #'compile-generic)
                            full_expr :stmt-p t)))
