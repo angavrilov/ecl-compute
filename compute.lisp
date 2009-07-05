@@ -86,11 +86,13 @@
                         (incf-nil (gethash check *consistency-checks*)))
                     ;; Create dimension consistency checks
                     (do ((dims (get name 'mv-dimensions) (cdr dims))
+                         (rank (length (get name 'mv-dimensions)))
                          (idx 0 (1+ idx)))
                         ((null dims) nil)
                         (incf-nil
                             (gethash `(<= ,(car dims)
-                                          (arr-dim (multivalue-data ,name t) ,idx))
+                                          (arr-dim (multivalue-data ,name t)
+                                              ,idx ,rank))
                                       *consistency-checks*))))
                 ;; Return the expression
                 rexpr))

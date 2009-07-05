@@ -4,8 +4,14 @@
 
 (defun replace-dim (expr old-expr)
     (match expr
-        (`(arr-dim (multivalue-data ,mv ,@_) ,idx)
-            `(multivalue-cuda-dimension ,mv ,idx))
+        (`(arr-dim (multivalue-data ,mv ,@_) ,idx ,rank)
+            (if (= idx (1- rank))
+               `(/ (cuda:linear-pitch
+                       (multivalue-cuda-buffer ,mv))
+                    4)
+               `(array-dimension
+                    (multivalue-data-array ,mv)
+                    ,idx)))
         (`(arr-dim ,@_)
             (error "Bad dimension: ~A" expr))))
 
@@ -167,14 +173,14 @@
                         ;; Array pointers come from linear buffers
                         (`(setf-tmp ,var (arr-ptr ,arr))
                             (ref-array (temp-symbol-name var) arr))
-                        (`(setf-tmp ,var ,(as dim `(arr-dim ,arr)))
+                        (`(setf-tmp ,var ,(as dim `(arr-dim ,_ ,_ ,_)))
                             (ref-arg (temp-symbol-name var) dim))
                         (`(arr-ptr ,arr)
                             (let ((sym (gensym "ARR")))
                                 (setf (get sym 'let-clause) t)
                                 (ref-array (temp-symbol-name sym) arr)
                                 (text (temp-symbol-name sym))))
-                        (`(arr-dim ,arr ,idx)
+                        (`(arr-dim ,_ ,_ ,_)
                             (let ((sym (gensym "DIM")))
                                 (setf (get sym 'let-clause) t)
                                 (ref-arg (temp-symbol-name sym) form)

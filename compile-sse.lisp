@@ -285,14 +285,13 @@
                              (text (ref-symbol sym)))
                          (`(multivalue-data ,@_)
                              (text (ref-arg form)))
-                         (`(arr-dim ,arr ,idx)
-                             (use-array arr idx)
+                         (`(arr-dim ,arr ,idx ,rank)
+                             (use-array arr (1- rank))
                              (let ((arr-str (recurse-str arr)))
-                                 (when (= 0 idx)
-                                     (text "VECTORP(~A)?(~A)->vector.dim:"
-                                         arr-str arr-str))
-                                 (text "(~A)->array.dims[~A]"
-                                     arr-str idx)))
+                                 (if (= 1 rank)
+                                     (text "(~A)->vector.dim" arr-str)
+                                     (text "(~A)->array.dims[~A]"
+                                         arr-str idx))))
                          (`(arr-ptr ,arr)
                              (use-array arr 0)
                              (let ((arr-str (recurse-str arr)))

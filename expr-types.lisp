@@ -103,7 +103,7 @@
                     (`(arr-ptr ,arr)
                         (get-bottom-type arr)
                         'float-ptr)
-                    (`(arr-dim ,arr ,_)
+                    (`(arr-dim ,arr ,_ ,_)
                         (get-bottom-type arr)
                         'integer)
                     (`(temporary ,_ nil ,@_)

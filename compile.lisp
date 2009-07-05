@@ -10,7 +10,7 @@
                    (stride-lst
                        (loop for i from (1- idx-cnt) downto 0
                         collect (prog1 stride
-                                   (let ((cstride `(arr-dim ,name ,i)))
+                                   (let ((cstride `(arr-dim ,name ,i ,idx-cnt)))
                                        (setf stride
                                            (if stride
                                                `(* ,stride ,cstride)
@@ -45,7 +45,7 @@
                         #'(lambda (expr old-expr)
                               (match expr
                                   (`(arr-ptr (temporary ,@_)) (second expr))
-                                  (`(arr-dim (temporary ,_ ,dims ,@_) ,i)
+                                  (`(arr-dim (temporary ,_ ,dims ,@_) ,i ,_)
                                       (nth i dims))))
                         rexpr))))
         (_ nil)))
