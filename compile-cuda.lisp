@@ -275,42 +275,61 @@
         (splice-inner-loop expr types)
         types))
 
+(defun get-symbol-set (expr)
+    (let ((table (make-hash-table)))
+        (labels ((recur (expr)
+                     (cond
+                         ((symbolp expr)
+                             (setf (gethash expr table) t))
+                         ((consp expr)
+                             (mapc #'recur expr)))))
+            (recur expr)
+            table)))
+
 (defvar *cg-shared-setfs* nil)
 
-(defmacro flush-shared-setfs ()
+(defmacro flush-shared-setfs (body)
    `(when *cg-shared-setfs*
-        (text "if (threadIdx.x == 0) {~%")
-        (dolist (sv (nreverse *cg-shared-setfs*))
-            (recurse sv :stmt-p t))
-        (text "}~%__syncthreads();~%")
-        (setf *cg-shared-setfs* nil)))
+        (let* ((setfs *cg-shared-setfs*)
+               (body-syms (get-symbol-set ,body)))
+            (setf *cg-shared-setfs* nil)
+            (dolist (sv (nreverse setfs))
+                (recurse sv :base-struct-p body-syms))
+            (text "if (threadIdx.x == 0) {~%")
+            (dolist (sv (nreverse *cg-shared-setfs*))
+                (recurse sv :stmt-p t))
+            (setf *cg-shared-setfs* nil)
+            (setf *cg-shared-body* nil)
+            (text "}~%__syncthreads();~%"))))
+
+(defun get-cuda-type-string (expr)
+    (let ((var-type (gethash expr *cg-type-table*)))
+        (match var-type
+            ('float "float")
+            ('float-ptr "float*")
+            ('integer "int")
+            ('boolean "int")
+            (_ (error "Bad type ~A of ~A in ~A"
+                   var-type expr *cg-full-expr*)))))
 
 (def-form-compiler compile-shared-temps (form base-struct-p)
     ((when base-struct-p
          `(let* ,assns ,@body))
-        (text "{~%")
         (dolist (assn assns)
             (recurse
                 `(setf-tmp ,(first assn) ,(second assn))
                 :stmt-p t :base-struct-p t))
         (dolist (cmd body)
             (recurse cmd
-                :stmt-p t :base-struct-p t))
-        (text "}~%"))
+                :stmt-p t :base-struct-p t)))
 
-    ((when base-struct-p
+    ((when (and (hash-table-p base-struct-p)
+               (gethash var base-struct-p))
          `(setf-tmp ,var ,expr))
-        (let ((var-type (gethash expr *cg-type-table*))
-              (var-name (temp-symbol-name var))
+        (let ((var-name (temp-symbol-name var))
               (var-fdiv (or (get var 'fdiv-users) 0)))
             (text "__shared__ ~A ~A;~%"
-                (match var-type
-                    ('float "float")
-                    ('float-ptr "float*")
-                    ('integer "int")
-                    ('boolean "int")
-                    (_ (error "Bad type ~A of ~A in ~A"
-                           var-type expr *cg-full-expr*)))
+                (get-cuda-type-string expr)
                 var-name)
             (push `(setf ,var ,expr) *cg-shared-setfs*)
             (when (> var-fdiv 1)
@@ -323,8 +342,20 @@
                     (push `(setf ,sym ,dexpr) *cg-shared-setfs*)))))
 
     ((when base-struct-p
-         `(setf ,_ ,_))
+         `(,(or 'setf 'setf-tmp 'inline-strs) ,@_))
         (push form *cg-shared-setfs*))
+
+    (`(setf-tmp ,var ,expr)
+        (let ((var-name (temp-symbol-name var))
+              (var-fdiv (or (get var 'fdiv-users) 0)))
+            (text "~A ~A = ("
+                (get-cuda-type-string expr)
+                var-name)
+            (recurse expr)
+            (text ");~%")
+            (when (> var-fdiv 1)
+                (text "float ~A_fdiv = (1.0f/~A);~%"
+                    var-name var-name))))
 
     ((when base-struct-p
          `(progn ,@body))
@@ -332,6 +363,12 @@
             (recurse cmd
                 :stmt-p t
                 :base-struct-p t)))
+
+    (`(inline-strs ,@code)
+        (dolist (item code)
+            (if (stringp item)
+                (text item)
+                (recurse item))))
 
     ((when base-struct-p
          _)
@@ -465,11 +502,6 @@
                     (form-compiler (form)
                         ((type symbol sym)
                             (text (temp-symbol-name sym)))
-                        (`(inline-strs ,@code)
-                            (dolist (item code)
-                                (if (stringp item)
-                                    (text item)
-                                    (recurse item))))
                         ;; Convert outer loops to block dimensions
                         ((when (and (< (length dims) max-dims)
                                     (> level 0))
@@ -501,10 +533,10 @@
                             (dolist (stmt body)
                                 (recurse stmt
                                     :stmt-p t :base-struct-p t))
-                            (flush-shared-setfs))
+                            (flush-shared-setfs nil))
                         ;; Otherwise jump to the in-block level
                         (`(loop-range ,@_)
-                            (flush-shared-setfs)
+                            (flush-shared-setfs form)
                             (recurse form
                                 :use-stack
                                 (list block-compiler
