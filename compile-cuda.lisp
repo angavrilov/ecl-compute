@@ -285,20 +285,21 @@
         (text "}~%__syncthreads();~%")
         (setf *cg-shared-setfs* nil)))
 
-(def-form-compiler compile-shared-temps (form stmt-p)
-    (`(let* ,assns ,@body)
-        (unless stmt-p
-            (error "Let in a non-stmt context: ~A" form))
+(def-form-compiler compile-shared-temps (form base-struct-p)
+    ((when base-struct-p
+         `(let* ,assns ,@body))
         (text "{~%")
         (dolist (assn assns)
             (recurse
-                `(setf-tmp ,(first assn) ,(second assn))))
-        (flush-shared-setfs)
+                `(setf-tmp ,(first assn) ,(second assn))
+                :stmt-p t :base-struct-p t))
         (dolist (cmd body)
-            (recurse cmd :stmt-p t))
+            (recurse cmd
+                :stmt-p t :base-struct-p t))
         (text "}~%"))
 
-    (`(setf-tmp ,var ,expr)
+    ((when base-struct-p
+         `(setf-tmp ,var ,expr))
         (let ((var-type (gethash expr *cg-type-table*))
               (var-name (temp-symbol-name var))
               (var-fdiv (or (get var 'fdiv-users) 0)))
@@ -319,10 +320,33 @@
                     (setf (get sym 'let-clause) t)
                     (setf (gethash dexpr *cg-type-table*) 'float)
                     (text "__shared__ float ~A_fdiv;~%" var-name)
-                    (push `(setf ,sym ,dexpr) *cg-shared-setfs*))))))
+                    (push `(setf ,sym ,dexpr) *cg-shared-setfs*)))))
 
-(defun compile-expr-cuda (name block-dim full_expr)
+    ((when base-struct-p
+         `(setf ,_ ,_))
+        (push form *cg-shared-setfs*))
+
+    ((when base-struct-p
+         `(progn ,@body))
+        (dolist (cmd body)
+            (recurse cmd
+                :stmt-p t
+                :base-struct-p t)))
+
+    ((when base-struct-p
+         _)
+        (error "Invalid base structure entry: ~A" form)))
+
+(defun compile-expr-cuda (name block-dim range-list full_expr)
     (let ((types (derive-types full_expr))
+          ;; Limit on the dimensions usable for blocks.
+          ;; Break on ordered loops or static limit of 2.
+          (max-dims
+              (do ((cnt 0 (1+ cnt))
+                   (rlst range-list (rest rlst)))
+                  ((or (>= cnt 2)
+                       (ranging-order-flag (first rlst)))
+                      cnt)))
           (args  ())
           (top-found nil)
           (dims  ()))
@@ -421,14 +445,33 @@
                              (recurse (if (> delta 0) max min))
                              (text "; ~A += ~A) {~%" arg delta)
                              (dolist (cmd body)
-                                 (recurse cmd :stmt-p t))
+                                 (recurse cmd
+                                     :stmt-p t :base-struct-p t))
                              (text "}}~%"))))
+                 (arr-arg-compiler
+                    (form-compiler (form)
+                        ;; Array pointers come from linear buffers
+                        (`(arr-ptr ,arr)
+                            (let ((sym (gensym "ARR")))
+                                (setf (get sym 'let-clause) t)
+                                (ref-array (temp-symbol-name sym) arr)
+                                (text (temp-symbol-name sym))))
+                        (`(arr-dim ,_ ,_ ,_)
+                            (let ((sym (gensym "DIM")))
+                                (setf (get sym 'let-clause) t)
+                                (ref-arg (temp-symbol-name sym) form)
+                                (text (temp-symbol-name sym))))))
                  (grid-compiler
                     (form-compiler (form)
                         ((type symbol sym)
                             (text (temp-symbol-name sym)))
+                        (`(inline-strs ,@code)
+                            (dolist (item code)
+                                (if (stringp item)
+                                    (text item)
+                                    (recurse item))))
                         ;; Convert outer loops to block dimensions
-                        ((when (and (< (length dims) 2)
+                        ((when (and (< (length dims) max-dims)
                                     (> level 0))
                             `(loop-range
                                  (ranging ,arg ,min ,max ,step nil ,level ,@_)
@@ -437,26 +480,31 @@
                                                   ,(get-full-expr min))
                                            ,step))
                                 dims)
-                            (text "{~%int ~A = (" (symbol-name arg))
-                            (recurse min)
-                            (text ") + ~A*~A;~%"
-                                (ecase (length dims)
-                                    (1 "blockIdx.x")
-                                    (2 "blockIdx.y"))
-                                step)
-                            (if (/= (length body) 1)
-                                (dolist (stmt body)
-                                    (recurse stmt
-                                        :use-stack
-                                        (list block-compiler
-                                              #'compile-generic-c
-                                              #'compile-generic
-                                              #'compile-c-inline-temps)
-                                        :stmt-p t))
-                                (recurse (first body) :stmt-p t))
-                            (text "}~%"))
+                            (let ((instmt
+                                    `(inline-strs
+                                         ,(symbol-name arg)
+                                         " = (" ,min ") + "
+                                         ,(format nil "~A*~A;~%"
+                                              (ecase (length dims)
+                                                  (1 "blockIdx.x")
+                                                  (2 "blockIdx.y"))
+                                              step))))
+                                (if (or *cg-shared-setfs*
+                                        (eql (first (first body)) 'let*))
+                                    (progn
+                                        (text "__shared__ int ~A;~%"
+                                            (symbol-name arg))
+                                        (push instmt *cg-shared-setfs*))
+                                    (progn
+                                        (text "int ")
+                                        (recurse instmt))))
+                            (dolist (stmt body)
+                                (recurse stmt
+                                    :stmt-p t :base-struct-p t))
+                            (flush-shared-setfs))
                         ;; Otherwise jump to the in-block level
                         (`(loop-range ,@_)
+                            (flush-shared-setfs)
                             (recurse form
                                 :use-stack
                                 (list block-compiler
@@ -478,16 +526,6 @@
                             (ref-array (temp-symbol-name var) arr))
                         (`(setf-tmp ,var ,(as dim `(arr-dim ,_ ,_ ,_)))
                             (ref-arg (temp-symbol-name var) dim))
-                        (`(arr-ptr ,arr)
-                            (let ((sym (gensym "ARR")))
-                                (setf (get sym 'let-clause) t)
-                                (ref-array (temp-symbol-name sym) arr)
-                                (text (temp-symbol-name sym))))
-                        (`(arr-dim ,_ ,_ ,_)
-                            (let ((sym (gensym "DIM")))
-                                (setf (get sym 'let-clause) t)
-                                (ref-arg (temp-symbol-name sym) form)
-                                (text (temp-symbol-name sym))))
                         ;; Temporaries are allocated in shared memory,
                         ;; unless they are explicitly localized.
                         (`(setf-tmp ,var (temporary ',name nil ,_ :local))
@@ -527,21 +565,26 @@
                             (recurse form
                                 :use-stack
                                 (list grid-compiler
+                                      arr-arg-compiler
                                       #'compile-shared-temps
                                       #'compile-generic-c
                                       #'compile-generic
                                       #'compile-c-inline-temps)
-                                :stmt-p t))))
+                                :stmt-p t
+                                :base-struct-p t))))
 
                  (*cg-type-table* types)
                  (*cg-full-expr* full_expr)
                  (*cg-shared-setfs* nil)
                  (code (call-form-compilers
                            (list args-compiler
+                                 arr-arg-compiler
                                  #'compile-shared-temps
                                  #'compile-generic-c
                                  #'compile-generic)
-                           full_expr :stmt-p t)))
+                           full_expr
+                           :stmt-p t
+                           :base-struct-p t)))
                  `(cuda:kernel
                       ,(nreverse args)
                       ,code
@@ -638,5 +681,5 @@
                          ,(insert-checks nil)
                          ,(compile-expr-cuda
                               (format nil "compute_~A" name)
-                              *loop-cluster-size*
+                              *loop-cluster-size* range-list
                               (code-motion noaref-expr :pull-symbols t))))))))
