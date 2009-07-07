@@ -507,7 +507,8 @@
                                 loop-list range-list))))))))
 
 (defun do-make-lisp-compute (original name idxspec expr
-                                &key with where carrying parallel cluster-cache)
+                                &key with where carrying parallel cluster-cache
+                                    cuda-block-size)
     (let* ((*current-compute* original)
            (*simplify-cache* (make-hash-table))
            (*range-cache* (make-hash-table))

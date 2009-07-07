@@ -41,6 +41,65 @@
         (_
             (error "Invalid reference: ~A" expr))))
 
+(defun get-inner-delta (expr)
+    (match expr
+        ((type number num)
+            num)
+        (`(,(or 'arr-ptr 'temporary 'arr-dim 'ranging) ,@_)
+            0)
+        (`(- ,a ,@rest)
+            (- (recurse-factored #'get-inner-delta a)
+               (recurse-factored #'get-inner-delta `(+ ,@rest))))
+        (`(,(or 'ptr+ '+) ,@args)
+            (reduce #'+
+                (mapcar
+                    #'(lambda (x)
+                          (recurse-factored #'get-inner-delta x))
+                    args)))
+        (`(* ,@args)
+            (reduce #'*
+                (mapcar
+                    #'(lambda (x)
+                          (recurse-factored #'get-inner-delta x))
+                    args)))
+        (_ 0)))
+
+(defun apply-unless-nil (fun args)
+    (if (some #'null args)
+        nil
+        (apply fun args)))
+
+(defun deriv* (&rest args)
+    (let ((nz-vals (remove-if #'zerop args)))
+        (if nz-vals nil 0)))
+
+(defun get-inner-step (expr)
+    (match expr
+        ((type number num)
+            0)
+        ((when (eql (ranging-loop-level expr) 0)
+             `(ranging ,@_))
+            1)
+        (`(,(or 'arr-ptr 'temporary 'arr-dim 'ranging) ,@_)
+            0)
+        (`(- ,a ,@rest)
+            (apply-unless-nil #'-
+                (list
+                    (recurse-factored #'get-inner-step a)
+                    (recurse-factored #'get-inner-step `(+ ,@rest)))))
+        (`(,(or 'ptr+ '+) ,@args)
+            (apply-unless-nil #'+
+                (mapcar
+                    #'(lambda (x)
+                          (recurse-factored #'get-inner-step x))
+                    args)))
+        (`(* ,@args)
+            (apply-unless-nil #'deriv*
+                (mapcar
+                    #'(lambda (x)
+                          (recurse-factored #'get-inner-step x))
+                    args)))))
+
 (defun collect-refs (lvals rvals expr)
     (match expr
         (`(setf ,ref ,rhs)
@@ -386,6 +445,7 @@
                       cnt)))
           (args  ())
           (top-found nil)
+          (needs-scratch nil)
           (dims  ()))
         (labels ((ref-arg (name expr &optional etype)
                      (let ((sym-type (or etype
@@ -410,7 +470,39 @@
                          (x
                              (error "Invalid array expression: ~A" x)))))
             (let*
-                ((block-compiler
+                ((align-compiler
+                    (form-compiler (form stmt-p)
+                        ((type symbol sym)
+                            (text (temp-symbol-name sym)))
+                        (`(ptr-deref ,ptr)
+                            (let* ((istep (get-inner-step ptr))
+                                   (delta (get-inner-delta ptr))
+                                   (misalignment (mod delta 16)))
+                                (if (or (not (eql istep 1))
+                                        (eql misalignment 0))
+                                    (progn
+                                        (text "*(")
+                                        (recurse ptr)
+                                        (text ")"))
+                                    (progn
+                                        (setf needs-scratch t)
+                                        (text "(__scratch_ptr=(")
+                                        (recurse ptr)
+                                        (text "),~%(threadIdx.x<~A?" misalignment)
+                                        (text "__scratch[threadIdx.x+~A]=*(__scratch_ptr+~A):"
+                                            (- block-dim misalignment) (- block-dim misalignment))
+                                        (text "__scratch[threadIdx.x-~A]=*(__scratch_ptr-~A)),~%"
+                                            misalignment misalignment)
+                                        (text "__syncthreads(),__scratch[threadIdx.x])")))))
+                        (`(setf (ptr-deref ,ptr) ,expr)
+                            (text "*(")
+                            (recurse ptr)
+                            (text ")=(")
+                            (recurse expr)
+                            (text ")")
+                            (when stmt-p
+                                (text ";~%")))))
+                 (block-compiler
                     (form-compiler (form)
                         ((type symbol sym)
                             (text (temp-symbol-name sym)))
@@ -449,7 +541,13 @@
                                                 `(progn ,@body) *cg-type-table*)
                                         (text "/*preamble*/~%")
                                         (dolist (stmt preamble)
-                                            (recurse stmt :stmt-p t))
+                                            (recurse stmt
+                                                :use-stack
+                                                (list align-compiler
+                                                      #'compile-generic-c
+                                                      #'compile-generic
+                                                      #'compile-c-inline-temps)
+                                                :stmt-p t))
                                         (dolist (var escape-vars)
                                             (text "~A ~A;~%"
                                                 (ecase (get-factored-cg-type var)
@@ -468,9 +566,21 @@
                                             (text "}~%__syncthreads();~%}}~%"))
                                         (text "/*finalize*/~%")
                                         (dolist (stmt final)
-                                            (recurse stmt :stmt-p t)))
+                                            (recurse stmt
+                                                :use-stack
+                                                (list align-compiler
+                                                      #'compile-generic-c
+                                                      #'compile-generic
+                                                      #'compile-c-inline-temps)
+                                                :stmt-p t)))
                                     (dolist (stmt body)
-                                        (recurse stmt :stmt-p t)))
+                                        (recurse stmt
+                                            :use-stack
+                                            (list align-compiler
+                                                  #'compile-generic-c
+                                                  #'compile-generic
+                                                  #'compile-c-inline-temps)
+                                            :stmt-p t)))
                                 (text "}}~%")))
                         ((when (> level 0)
                             `(loop-range
@@ -617,6 +727,10 @@
                            full_expr
                            :stmt-p t
                            :base-struct-p t)))
+                (when needs-scratch
+                    (setf code
+                        (format nil "float *__scratch_ptr;~%__shared__ float __scratch[~A];~%~A"
+                            block-dim code)))
                  `(cuda:kernel
                       ,(nreverse args)
                       ,code
@@ -684,13 +798,14 @@
                     expr)))))
 
 (defun do-make-cuda-compute (original name idxspec expr
-                                &key with where carrying parallel cluster-cache)
+                                &key with where carrying parallel cluster-cache
+                                    (cuda-block-size 64))
     (let* ((*current-compute* original)
            (*simplify-cache* (make-hash-table))
            (*range-cache* (make-hash-table))
            (*minlevel-cache* (make-hash-table))
            (*consistency-checks* (make-hash-table :test #'equal))
-           (*loop-cluster-size* 64)
+           (*loop-cluster-size* cuda-block-size)
            (*align-cluster* 16))
         (multiple-value-bind
                 (loop-expr loop-list range-list)
