@@ -11,4 +11,5 @@
         "*CURRENT-COMPUTE*" "COMPUTE"
         "LETV" "CALC" "_GRP"
         "SET-COMPUTE-THREAD-COUNT" "PARALLEL-LOOP"
+        "*COMPUTE-WITH-CUDA*"
     ))

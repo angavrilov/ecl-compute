@@ -2,6 +2,8 @@
 
 (in-package fast-compute)
 
+(defvar *compute-with-cuda* t)
+
 (defmacro error-fallback (message fallback &body code)
    `(block handle
         (handler-bind ((condition
@@ -16,14 +18,23 @@
 
 #+cuda
 (defmacro compute (&whole original &rest args)
-    (let ((lisp-code
-              (apply #'do-make-lisp-compute original args)))
-        (error-fallback
-                "CUDA compilation failed:~%   ~A~%"
-                lisp-code
-            `(if (cuda:valid-context-p)
-                 ,(apply #'do-make-cuda-compute original args)
-                 ,lisp-code))))
+    (case *compute-with-cuda*
+        ((nil)
+            (apply #'do-make-lisp-compute original args))
+        (:force
+            (error-fallback
+                    "CUDA compilation failed:~%   ~A~%"
+                    (apply #'do-make-lisp-compute original args)
+                (apply #'do-make-cuda-compute original args)))
+        (otherwise
+            (let ((lisp-code
+                      (apply #'do-make-lisp-compute original args)))
+                (error-fallback
+                        "CUDA compilation failed:~%   ~A~%"
+                        lisp-code
+                    `(if (cuda:valid-context-p)
+                         ,(apply #'do-make-cuda-compute original args)
+                         ,lisp-code))))))
 
 #-cuda
 (define-compiler-macro compute (&whole original &rest args)
@@ -34,14 +45,26 @@
 
 #+cuda
 (define-compiler-macro compute (&whole original &rest args)
-    (let ((lisp-code
-              (error-fallback
-                      "~%Fast C compilation failed:~%   ~A~%Reverting to ordinary lisp.~%"
-                      (apply #'do-make-lisp-compute original args)
-                  (apply #'do-make-c-compute original args))))
-        (error-fallback
-                "CUDA compilation failed:~%   ~A~%"
-                lisp-code
-            `(if (cuda:valid-context-p)
-                 ,(apply #'do-make-cuda-compute original args)
-                 ,lisp-code))))
+    (case *compute-with-cuda*
+        ((nil)
+            (error-fallback
+                    "~%Fast C compilation failed:~%   ~A~%Reverting to ordinary lisp.~%"
+                    original
+                (apply #'do-make-c-compute original args)))
+        (:force
+            (error-fallback
+                    "CUDA compilation failed:~%   ~A~%"
+                    (apply #'do-make-lisp-compute original args)
+                (apply #'do-make-cuda-compute original args)))
+        (otherwise
+            (let ((lisp-code
+                      (error-fallback
+                              "~%Fast C compilation failed:~%   ~A~%Reverting to ordinary lisp.~%"
+                              (apply #'do-make-lisp-compute original args)
+                          (apply #'do-make-c-compute original args))))
+                (error-fallback
+                        "CUDA compilation failed:~%   ~A~%"
+                        lisp-code
+                    `(if (cuda:valid-context-p)
+                         ,(apply #'do-make-cuda-compute original args)
+                         ,lisp-code))))))
