@@ -172,12 +172,26 @@
         (recurse a))
 
     (`(- ,a)
-        (text "_mm_sub_ps(_mm_setzero_ps(),")
+        (text "_mm_xor_ps(__sign_mask.sse,")
         (recurse a)
         (text ")"))
 
     (`(,(as func (or 'floor 'ceiling 'sin 'cos 'exp 'expt)) ,@_)
         (error "Functions not supported in SSE: ~A" func))
+
+    (`(float-sign ,arg ,(type number base))
+        (text "_mm_or_ps(")
+        (recurse (abs base))
+        (text ",_mm_and_ps(__sign_mask.sse,")
+        (recurse arg)
+        (text "))"))
+
+    (`(float-sign ,arg ,base)
+        (text "_mm_or_ps(_mm_andnot_ps(__sign_mask.sse,")
+        (recurse base)
+        (text "),_mm_and_ps(__sign_mask.sse,")
+        (recurse arg)
+        (text "))"))
 
     (`(ptr-deref ,ptr)
         (if (is-level0-ptr ptr)
@@ -245,8 +259,14 @@
                             full_expr :stmt-p t))
                   (vars (if (null *cg-sse-auxvars*) ""
                             (format nil "__m128 ~{~A~^, ~};~%"
-                                *cg-sse-auxvars*))))
-                (concatenate 'string vars code)))))
+                                *cg-sse-auxvars*)))
+                  (preamble 
+                    "const static union {
+                       unsigned bits[4];
+                       __m128 sse;
+                     } __sign_mask = { { 0x80000000U, 0x80000000U, 0x80000000U, 0x80000000U } };
+                   "))
+                (concatenate 'string preamble vars code)))))
 
 (defun compile-expr-generic (full_expr)
     (let ((types (derive-types full_expr))

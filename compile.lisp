@@ -73,7 +73,7 @@
         ((cons (or 'ranging 'aref 'iref '_grp 'tmp-ref 'quote
                    '+ '- '* '/ 'mod 'rem 'floor 'ceiling 'truncate
                    'and 'or 'if 'progn
-                   'sin 'cos 'exp 'expt
+                   'sin 'cos 'exp 'expt 'float-sign
                    '> '< '>= '<= '/= '= 'min 'max 'setf 'loop-range) tail)
             (cons-save-old expr (car expr)
                 (mapcar-save-old #'expand-macros tail)))
@@ -323,6 +323,16 @@
         (dolist (arg2 rest)
             (text ", ")
             (recurse arg2))
+        (text ")"))
+
+    (`(float-sign ,arg)
+        (recurse `(float-sign ,arg 1.0)))
+
+    (`(float-sign ,arg ,base)
+        (text "copysignf(")
+        (recurse base)
+        (text ", ")
+        (recurse arg)
         (text ")"))
 
     (`(ptr-deref ,ptr)
