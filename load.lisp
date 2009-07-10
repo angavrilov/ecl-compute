@@ -21,6 +21,7 @@
     (dolist (module-name
                 '("formula.lisp"
                   "compute-pkg.lisp"
+                  "util-misc.lisp"
                   "expr-index.lisp"
                   "expr-optimize.lisp"
                   "expr-refactor.lisp"
@@ -42,5 +43,6 @@
     (let ((c::*cc-flags*
               (concatenate 'string c::*cc-flags*
                   " -msse2")))
-        (load-compile "utils")))
+        (load-compile "util-arrays")
+        (load-compile "util-denorm")))
 

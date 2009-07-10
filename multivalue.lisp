@@ -5,14 +5,6 @@
 (defparameter *current-compute* nil)
 (defparameter *current-compute-body* nil)
 
-(defun unsymbol (x)
-    (if (symbolp x) (symbol-name x) x))
-
-(defun symcat (&rest items)
-    (intern
-        (apply #'concatenate 'string
-            (mapcar #'unsymbol items))))
-
 (defun index-dimension (item)
     (destructuring-bind (iname minv maxv &key (by 1) (bands 1)) item
         (let ((fullrange `(/ (- ,maxv ,minv) ,by)))
@@ -42,13 +34,6 @@
                           (error "Cannot find multivalue index '~A' in supplied args ~A" iname table))
                       item))
         order))
-
-(defun set-prop-nochange (sym tag value)
-    (let ((old-value (get sym tag)))
-        (if (or (null old-value) (equal old-value value))
-            (setf (get sym tag) value)
-            (error "Cannot redefine ~A for ~A to: ~A~% - already set to: ~A"
-                tag sym value old-value))))
 
 (defstruct multivalue
     (name nil :type symbol)

@@ -53,17 +53,6 @@
                    (replace-unquoted (car expr) replace-tbl)
                    (replace-unquoted (cdr expr) replace-tbl))))))
 
-(defun subst-save-old (new old expr)
-    (cond
-        ((eql expr old)
-            new)
-        ((atom expr)
-            expr)
-        (t
-            (cons-save-old expr
-                (subst-save-old new old (car expr))
-                (subst-save-old new old (cdr expr))))))
-
 (defun wrap-progn (code)
     (if (cdr code) `(progn ,@code) (car code)))
 
@@ -113,20 +102,6 @@
     (if with
         `(let* ,(convert-letv-exprs-auto with) ,expr)
         expr))
-
-(defun apply-hash-change (table vals)
-    (mapcar #'(lambda (assn)
-                (let ((key (car assn)))
-                    (prog1
-                        (cons key (gethash key table))
-                        (setf (gethash key table) (cdr assn)))))
-        vals))
-
-(defmacro with-hash-update (table vals &body rest)
-    (let ((ss (gensym)))
-        `(let ((,ss (apply-hash-change ,table ,vals)))
-            (unwind-protect (progn ,@rest)
-                (apply-hash-change ,table ,ss)))))
 
 (defun expand-let-1 (expr table)
     (or (gethash expr table)
@@ -182,17 +157,6 @@
         (_
 ;            (format t "Unknown structure statement: ~A" expr)
             (apply fun expr args))))
-
-(define-modify-macro incf-nil (&optional (delta 1))
-    (lambda (val delta) (+ (or val 0) delta)))
-
-(defmacro use-cache ((key cache) &body code)
-    (let ((cached-val (gensym))
-          (found (gensym)))
-        `(multiple-value-bind (,cached-val ,found) (gethash ,key ,cache)
-            (if ,found ,cached-val
-                (setf (gethash ,key ,cache)
-                    (progn ,@code))))))
 
 (defparameter *minlevel-cache* (make-hash-table))
 

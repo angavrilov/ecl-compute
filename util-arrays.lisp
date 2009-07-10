@@ -1,10 +1,14 @@
+;;;; kate: indent-width 4; replace-tabs yes; space-indent on;
+
+(in-package fast-compute)
+
 (ffi:clines "#include <stdio.h>")
 
 (defun dump-array (file arr)
     (ffi:c-inline
         (file
-            (if (typep arr 'fast-compute:multivalue)
-                (fast-compute::multivalue-data-f arr :read)
+            (if (typep arr 'multivalue)
+                (multivalue-data-f arr :read)
                 arr))
         (:cstring :object)
         :void
@@ -42,8 +46,8 @@
 (defun restore-array (file arr)
     (ffi:c-inline
         (file
-            (if (typep arr 'fast-compute:multivalue)
-                (fast-compute::multivalue-data-f arr :write-all)
+            (if (typep arr 'multivalue)
+                (multivalue-data-f arr :write-all)
                 arr)
             file)
         (:cstring :object :object)
@@ -83,18 +87,4 @@
            fread(VECTORP(arr)?arr->vector.self.sf:arr->array.self.sf,
                   size, sizeof(float), f);
            fclose(f); }"))
-
-(ffi:clines "#include <xmmintrin.h>")
-
-(defun allow-denormalized-floats (&optional (enable-p t))
-    (= 0
-        (ffi:c-inline ((if enable-p 1 0)) (:int) :int
-            "{ unsigned status = _mm_getcsr();
-               @(return) = (status & 0x8040);
-               if (#0)
-                  status &= ~0x8040;
-               else
-                  status |= 0x8040;
-               _mm_setcsr(status);
-             }")))
 
