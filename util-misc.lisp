@@ -10,6 +10,9 @@
         (apply #'concatenate 'string
             (mapcar #'unsymbol items))))
 
+(defun force-integer (expr)
+    (if (integerp expr) expr nil))
+
 (defmacro cond-list* (&body items)
     (let ((ritems (reverse items))
           (xsym (gensym)))
@@ -122,6 +125,23 @@
             (unwind-protect (progn ,@rest)
                 (apply-hash-change ,table ,ss)))))
 
+(defun copy-hash-data (new old &rest tables)
+    (unless (eql new old)
+        (dolist (tbl tables)
+            (multiple-value-bind
+                (oval found) (gethash new tbl)
+                (unless found
+                    (setf (gethash new tbl)
+                        (gethash old tbl)))))))
+
+(defun dump-tbl (name hash)
+    (format t "~%~%~A:~%" name)
+    (maphash
+        #'(lambda (k v)
+              (when v
+                  (print k)))
+        hash))
+
 (define-modify-macro incf-nil (&optional (delta 1))
     (lambda (val delta) (+ (or val 0) delta)))
 
@@ -140,3 +160,14 @@
             (error "Cannot redefine ~A for ~A to: ~A~% - already set to: ~A"
                 tag sym value old-value))))
 
+(defun has-atom (tree sym)
+    (if (and tree (consp tree))
+        (reduce #'(lambda (a b) (or a b))
+            (mapcar #'(lambda (x) (has-atom x sym))
+                tree))
+        (eql tree sym)))
+
+(defun apply-unless-nil (fun args)
+    (if (some #'null args)
+        nil
+        (apply fun args)))

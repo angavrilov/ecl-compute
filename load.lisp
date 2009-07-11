@@ -21,22 +21,44 @@
     (dolist (module-name
                 '("formula.lisp"
                   "compute-pkg.lisp"
-                  "util-misc.lisp"
-                  "expr-index.lisp"
-                  "expr-optimize.lisp"
-                  "expr-refactor.lisp"
-                  "expr-types.lisp"))
+                  "util-misc.lisp"))
         (load-interp module-name))
 
     (load-compile "thread-core")
 
     (dolist (module-name
-                '("multivalue.lisp"
-                  "threads.lisp"
-                  "compute.lisp"
-                  "compile.lisp"
-                  "compile-sse.lisp"
-                  #+cuda "compile-cuda.lisp"
+                '("expr/form-defs.lisp"
+                  "expr/simplify.lisp"
+                  "expr/ranges.lisp"
+                  "expr/canonify.lisp"
+                  "expr/opt-flatten.lisp"
+                  "expr/opt-pullexpr.lisp"
+                  "expr/opt-treeify.lisp"
+                  "expr/let-utils.lisp"
+                  "expr/loop-level.lisp"
+                  "expr/cse.lisp"
+                  "expr/types.lisp"
+                  "expr/ref-info.lisp"
+                  "logic/multivalue-obj.lisp"
+                  "logic/multivalue.lisp"
+                  "logic/checks.lisp"
+                  "logic/iref.lisp"
+                  "logic/loops.lisp"
+                  "logic/parallel.lisp"
+                  "logic/make-carry.lisp"
+                  "logic/make-cluster.lisp"
+                  "logic/compute.lisp"
+                  "gen/type-annot.lisp"
+                  "gen/expand-aref.lisp"
+                  "gen/expand-macros.lisp"
+                  "gen/form-compiler.lisp"
+                  "gen/tgt-lisp.lisp"
+                  "gen/tgt-generic-c.lisp"
+                  "gen/tgt-sse-intrin.lisp"
+                  "gen/tgt-inline-c.lisp"
+           #+cuda "gen/splice-carried.lisp"
+           #+cuda "gen/localize-temp.lisp"
+           #+cuda "gen/tgt-cuda.lisp"
                   "compute-macros.lisp"))
         (load-interp module-name))
 
