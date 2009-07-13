@@ -243,14 +243,17 @@
                                                       #'compile-generic
                                                       #'compile-c-inline-temps)
                                                 :stmt-p t)))
-                                    (dolist (stmt body)
-                                        (recurse stmt
-                                            :use-stack
-                                            (list align-compiler
-                                                  #'compile-generic-c
-                                                  #'compile-generic
-                                                  #'compile-c-inline-temps)
-                                            :stmt-p t)))
+                                    (let* ((flattened (flatten-inner-loop
+                                                          `(progn ,@body) *cg-type-table*))
+                                           (optimized (minimize-live-vars flattened)))
+                                        (dolist (stmt optimized)
+                                            (recurse stmt
+                                                :use-stack
+                                                (list align-compiler
+                                                      #'compile-generic-c
+                                                      #'compile-generic
+                                                      #'compile-c-inline-temps)
+                                                :stmt-p t))))
                                 (text "}}~%")))
                         ((when (> level 0)
                             `(loop-range

@@ -137,7 +137,7 @@
                 low-table high-table)
             low-table high-table)))
 
-(defun flatten-inner-loop (expr low-table high-table types)
+(defun flatten-inner-loop-with-carry (expr low-table high-table types)
     (let* ((preamble nil)
            (inner nil)
            (out-vars nil)
@@ -200,6 +200,6 @@
 
 (defun make-flattened-loop (expr types)
     (multiple-value-call
-        #'flatten-inner-loop
+        #'flatten-inner-loop-with-carry
         (splice-inner-loop expr types)
         types))

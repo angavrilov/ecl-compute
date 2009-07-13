@@ -134,6 +134,20 @@
                     (setf (gethash new tbl)
                         (gethash old tbl)))))))
 
+(defun hash-table-keys (table)
+    (let ((keys nil))
+        (do-hashtable (key val table keys)
+            (push key keys))))
+
+(defun sethash-all (table keys &optional (val t))
+    (dolist (item keys table)
+        (setf (gethash item table) val)))
+
+(defun hash-set-intersect (table1 table2)
+    (do-hashtable (key val table1 table1)
+        (unless (gethash key table2)
+            (remhash key table1))))
+
 (defun dump-tbl (name hash)
     (format t "~%~%~A:~%" name)
     (maphash
