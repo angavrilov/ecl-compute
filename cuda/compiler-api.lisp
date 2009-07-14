@@ -47,7 +47,7 @@
 (defparameter *compiled-cache* (make-hash-table :test #'equal))
 
 (defvar *nvcc* "nvcc")
-(defvar *nvcc-flags* "")
+(defvar *nvcc-flags* "--ptx")
 
 (defvar *print-kernel-code* nil)
 
@@ -56,7 +56,7 @@
            (srcname (make-pathname :type "cu" :defaults tmpname))
            (outname (make-pathname :type "ptx" :defaults tmpname))
            (cmd (format nil
-                    "~A ~A -m~A --ptx --output-file=~A ~A"
+                    "~A ~A -m~A --output-file=~A ~A"
                     *nvcc* *nvcc-flags*
                     (* +ptr-size+ 8)
                     outname srcname)))
@@ -75,6 +75,8 @@
                     (let ((buffer (make-string (file-length out)
                                       :element-type 'base-char)))
                         (read-sequence buffer out)
+                        (when *print-kernel-code*
+                            (format t "Result:~%~A" buffer))
                         buffer)))
             (when (probe-file srcname)
                 (delete-file srcname))
