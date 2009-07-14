@@ -2,6 +2,8 @@
 
 (in-package fast-compute)
 
+(defvar *realign-cuda-reads* nil)
+
 (defun replace-dim (expr old-expr)
     (match expr
         (`(arr-dim (multivalue-data ,mv ,@_) ,idx ,rank)
@@ -144,7 +146,8 @@
                     (form-compiler (form stmt-p)
                         ((type symbol sym)
                             (text (temp-symbol-name sym)))
-                        (`(ptr-deref ,ptr)
+                        ((when *realign-cuda-reads*
+                            `(ptr-deref ,ptr))
                             (let* ((istep (get-inner-step ptr))
                                    (delta (get-inner-delta ptr))
                                    (misalignment (mod delta 16)))
