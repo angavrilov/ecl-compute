@@ -87,34 +87,31 @@
             (dolist (sub e)
                 (collect-refs lvals rvals sub)))))
 
-(defun get-inner-delta (expr)
+(defun get-inner-delta-1 (expr)
     (match expr
         ((type number num)
             num)
         (`(,(or 'arr-ptr 'temporary 'arr-dim 'ranging) ,@_)
             0)
         (`(- ,a ,@rest)
-            (- (recurse-factored #'get-inner-delta a)
-               (recurse-factored #'get-inner-delta `(+ ,@rest))))
+            (- (get-inner-delta a)
+               (get-inner-delta `(+ ,@rest))))
         (`(,(or 'ptr+ '+) ,@args)
             (reduce #'+
-                (mapcar
-                    #'(lambda (x)
-                          (recurse-factored #'get-inner-delta x))
-                    args)))
+                (mapcar #'get-inner-delta args)))
         (`(* ,@args)
             (reduce #'*
-                (mapcar
-                    #'(lambda (x)
-                          (recurse-factored #'get-inner-delta x))
-                    args)))
+                (mapcar #'get-inner-delta args)))
         (_ 0)))
+
+(defun get-inner-delta (expr)
+    (recurse-factored #'get-inner-delta-1 expr))
 
 (defun deriv* (&rest args)
     (let ((nz-vals (remove-if #'zerop args)))
         (if nz-vals nil 0)))
 
-(defun get-inner-step (expr)
+(defun get-inner-step-1 (expr)
     (match expr
         ((type number num)
             0)
@@ -126,17 +123,14 @@
         (`(- ,a ,@rest)
             (apply-unless-nil #'-
                 (list
-                    (recurse-factored #'get-inner-step a)
-                    (recurse-factored #'get-inner-step `(+ ,@rest)))))
+                    (get-inner-step a)
+                    (get-inner-step `(+ ,@rest)))))
         (`(,(or 'ptr+ '+) ,@args)
             (apply-unless-nil #'+
-                (mapcar
-                    #'(lambda (x)
-                          (recurse-factored #'get-inner-step x))
-                    args)))
+                (mapcar #'get-inner-step args)))
         (`(* ,@args)
             (apply-unless-nil #'deriv*
-                (mapcar
-                    #'(lambda (x)
-                          (recurse-factored #'get-inner-step x))
-                    args)))))
+                (mapcar #'get-inner-step args)))))
+
+(defun get-inner-step (expr)
+    (recurse-factored #'get-inner-step-1 expr))

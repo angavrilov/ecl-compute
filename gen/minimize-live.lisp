@@ -4,7 +4,7 @@
 
 (use-std-readtable)
 
-(defun flatten-inner-loop (expr types)
+(defun flatten-inner-loop (expr types &key split-all)
     (let* ((assns nil))
         (labels
             ((copy-tags (old new)
@@ -14,7 +14,7 @@
                  (when stmt
                      (push stmt assns)))
              (new-temp (expr)
-                 (if (symbolp expr)
+                 (if (atom expr)
                      expr
                      (let* ((sym (gensym))
                             (clause (list sym expr)))
@@ -22,10 +22,14 @@
                          (copy-hash-data sym expr types)
                          (dispatch `(setf-tmp ,sym ,expr))
                          sym)))
+             (unwrap-split (expr)
+                 (new-temp (unwrap expr)))
              (unwrap (expr &optional (evals t))
                  (copy-tags expr
                      (match expr
                          ((type atom _)
+                             expr)
+                         (`(ranging ,@_)
                              expr)
                          (`(progn ,@code)
                              (dolist (stmt (butlast code))
@@ -48,6 +52,12 @@
                              (let ((sym (new-temp (unwrap rhs))))
                                  (dispatch `(setf ,var ,sym))
                                  sym))
+                         ((when split-all
+                             `(setf ,(type list tgt) ,rhs))
+                             `(setf ,(mapcar #'unwrap-split tgt)
+                                    ,(unwrap rhs)))
+                         ((when split-all _)
+                             (mapcar-save-old #'unwrap-split expr))
                          (_
                              (mapcar-save-old #'unwrap expr))))))
             (dispatch (unwrap expr nil))

@@ -244,7 +244,8 @@
                                                       #'compile-c-inline-temps)
                                                 :stmt-p t)))
                                     (let* ((flattened (flatten-inner-loop
-                                                          `(progn ,@body) *cg-type-table*))
+                                                          `(progn ,@body) *cg-type-table*
+                                                          :split-all t))
                                            (optimized (minimize-live-vars flattened)))
                                         (dolist (stmt optimized)
                                             (recurse stmt
