@@ -2,6 +2,8 @@
 
 (in-package fast-compute)
 
+(import 'fset::empty-2-relation)
+
 (defun unsymbol (x)
     (if (symbolp x) (symbol-name x) x))
 

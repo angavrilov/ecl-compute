@@ -1,5 +1,7 @@
 (require 'standard-cl)
 (require 'cl-match)
+(require 'misc-extensions)
+(require 'fset)
 
 (cl-match:defpattern si:quasiquote (&rest args)
     (macroexpand-1 (cons 'si:quasiquote args)))
