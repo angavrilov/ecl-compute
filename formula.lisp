@@ -215,7 +215,7 @@
                 `(progn ,left-expr ,right-expr)))))
 
 ;;; A reader macro to parse infix expressions
-(defun expr-reader (stream sc arg)
+(defun expr-reader (stream sc &optional arg)
     (let ((tokens (read-tokens-until #\} stream t)))
         (multiple-value-bind (expr tail) (parse-expr-progn tokens)
             (if (null tail)
@@ -224,4 +224,6 @@
 
 (defmacro enable-expr-quotes ()
    `(eval-when (:compile-toplevel :execute)
-        (set-dispatch-macro-character #\# #\{ #'expr-reader)))
+        (set-macro-character #\{ #'expr-reader)
+        (set-dispatch-macro-character #\# #\{ #'expr-reader)
+        (set-macro-character #\} (get-macro-character #\) nil))))
