@@ -72,9 +72,15 @@
         stmt-list))
 
 (defstruct assn-info
-    expr
+    expr rank
     lhs-var rhs-vars rhs-var-count
     lhs-refs rhs-refs)
+
+(defmethod compare ((p1 assn-info) (p2 assn-info))
+    (let ((cv (compare-slots p1 p2 #'assn-info-rank)))
+        (if (and (eql cv :equal) (not (eql p1 p2)))
+            :unequal
+            cv)))
 
 (defun get-expr-ref-info (expr temp-set)
     (let* ((lrefs (make-hash-table))
@@ -101,65 +107,80 @@
                     :lhs-refs (hash-table-keys lrefs)
                     :rhs-refs (hash-table-keys rrefs))))))
 
-(defun find-best-candidate (info-list temp-set
-                               &optional
-                                   (block-set (make-hash-table))
-                                   best-tmp setf-list)
-    (if (null info-list)
-        (nreverse
-            (cond-list*
-                (best-tmp best-tmp)
-                setf-list))
-        (let* ((head-info (first info-list))
-               (tail      (rest info-list))
-               (svar      (assn-info-lhs-var head-info))
-               (lrefs     (assn-info-lhs-refs head-info))
-               (can-select
-                   (and (every #f(gethash _ temp-set)
-                            (assn-info-rhs-vars head-info))
-                        (not
-                            (some #f(gethash _ block-set)
-                                (assn-info-lhs-refs head-info))))))
-            (sethash-all block-set
-                (assn-info-rhs-refs head-info))
-            (cond
-                ((not can-select)
-                    (find-best-candidate
-                        tail temp-set block-set
-                        best-tmp setf-list))
-                ((null svar)
-                    (find-best-candidate
-                        tail temp-set block-set
-                        best-tmp
-                        (cons head-info setf-list)))
-                ((or (null best-tmp)
-                     (>  (assn-info-rhs-var-count head-info)
-                         (assn-info-rhs-var-count best-tmp)))
-                    (find-best-candidate
-                        tail temp-set block-set
-                        head-info setf-list))
-                (t
-                    (find-best-candidate
-                        tail temp-set block-set
-                        best-tmp setf-list))))))
+(defun set-assn-ranks (info-list &optional (idx 0))
+    (dolist (info info-list)
+        (setf (assn-info-rank info) idx)
+        (incf idx)))
 
-(defun shuffle-stmts (info-list temp-set)
-    (if (null info-list) nil
-        (let* ((head-info (first info-list))
-               (tail      (rest info-list))
-               (svar      (assn-info-lhs-var head-info)))
-            (cons
-                head-info
-                (if (null svar)
-                    (shuffle-stmts tail temp-set)
-                    (progn
-                        (setf (gethash svar temp-set) t)
-                        (let* ((picked
-                                   (find-best-candidate tail temp-set))
-                               (remained
-                                   (remove-if #f(find _ picked) tail)))
-                            (shuffle-stmts
-                                (nconc picked remained) temp-set))))))))
+(defcontext stmt-reordering (info-list #'get-score)
+    (deflex fwd-tbl (make-hash-table))
+    (deflex cnt-tbl (make-hash-table))
+    (deflex remaining 0)
+
+    (deflex queue
+        (let ((var-tbl (make-hash-table)) ; var->info
+              (rhs-tbl (make-hash-table)) ; ref->info*
+              (queue (empty-set)))
+            (set-assn-ranks info-list)
+            (dolist (info info-list)
+                (let ((deps (reduce #'union
+                                (list*
+                                    (mapcar #f(gethash _ var-tbl)
+                                        (assn-info-rhs-vars info))
+                                    (mapcar #f(gethash _ rhs-tbl)
+                                        (assn-info-lhs-refs info))))))
+                    (dolist (info2 deps)
+                        (push info (gethash info2 fwd-tbl)))
+                    (if (null deps)
+                        (adjoinf queue
+                            (cons (- (get-score info)) info))
+                        (progn
+                            (setf (gethash info cnt-tbl) (length deps))
+                            (incf remaining))))
+                (let ((lvar (assn-info-lhs-var info)))
+                    (when lvar
+                        (setf (gethash lvar var-tbl) info)))
+                (dolist (rhs (assn-info-rhs-refs info))
+                    (push info (gethash rhs rhs-tbl))))
+            queue))
+
+    (deflex schedule nil)
+
+    (defun queued-score (qi)
+        (car qi))
+
+    (defun queued-info (qi)
+        (cdr qi))
+
+    (defun queue-item (info)
+        (adjoinf queue
+            (cons (- (get-score info)) info)))
+
+    (defun schedule-item (info)
+        (push info schedule)
+        (dolist (info2 (gethash info fwd-tbl))
+            (let ((cnt (decf (gethash info2 cnt-tbl))))
+                (when (<= cnt 0)
+                    (remhash info2 cnt-tbl)
+                    (decf remaining)
+                    (queue-item info2)))))
+
+    (defun pop-queue-info ()
+        (let ((val (least queue)))
+            (setf queue (less queue val))
+            (queued-info val)))
+
+    (defun result-schedule ()
+        (assert (= 0 remaining))
+        (nreverse schedule)))
+
+(defun shuffle-stmts (info-list)
+    (with-context
+            (stmt-reordering info-list
+                #'assn-info-rhs-var-count)
+        (until (empty? queue)
+            (schedule-item (pop-queue-info)))
+        (result-schedule)))
 
 (defun print-live-stats (info-list)
     (let ((tbl (make-hash-table))
@@ -206,8 +227,7 @@
            (shuffled
                (shuffle-stmts
                    (mapcar #f(get-expr-ref-info _ temp-var-set)
-                       stmt-list)
-                   (make-hash-table))))
-        (print-live-stats shuffled)
-        (push shuffled *shuffled*)
+                       stmt-list))))
+        ;(print-live-stats shuffled)
+        ;(push shuffled *shuffled*)
         (mapcar #'assn-info-expr shuffled)))
