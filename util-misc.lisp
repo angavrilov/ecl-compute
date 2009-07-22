@@ -169,6 +169,15 @@
                 (setf (gethash ,key ,cache)
                     (progn ,@code))))))
 
+(defmacro cached-simplifier (name pattern cache)
+    (with-gensyms (cache-var expr old-expr)
+        `(let ((,cache-var ,cache))
+             #'(lambda (,expr ,old-expr)
+                   (match ,expr
+                       (,pattern
+                           (use-cache (,expr ,cache-var)
+                               (,name ,expr ,old-expr))))))))
+
 (defun set-prop-nochange (sym tag value)
     (let ((old-value (get sym tag)))
         (if (or (null old-value) (equal old-value value))

@@ -51,4 +51,8 @@
         (_ nil)))
 
 (defun expand-aref (expr)
-    (simplify-rec-once #'expand-aref-1 expr))
+    (simplify-rec-once 
+        (cached-simplifier expand-aref-1 
+            `(,(or 'aref 'tmp-ref) ,@_)
+            (make-hash-table :test #'equal))
+        expr))

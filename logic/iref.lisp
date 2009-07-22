@@ -139,4 +139,8 @@
         (_ nil)))
 
 (defun simplify-iref (expr)
-    (simplify-rec-once #'simplify-iref-1 expr))
+    (simplify-rec-once
+        (cached-simplifier simplify-iref-1
+            `(iref ,@_)
+            (make-hash-table :test #'equal))
+        expr))
