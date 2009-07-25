@@ -105,7 +105,7 @@
          _)
         (error "Invalid base structure entry: ~A" form)))
 
-(defun compile-expr-cuda (name block-dim range-list full_expr)
+(defun compile-expr-cuda (kernel-flags block-dim range-list full_expr)
     (let ((types (derive-types full_expr))
           ;; Limit on the dimensions usable for blocks.
           ;; Break on ordered loops or static limit of 2.
@@ -411,7 +411,7 @@
                  `(cuda:kernel
                       ,(nreverse args)
                       ,code
-                      :name ,name
+                      ,@kernel-flags
                       :grid-size ,(subseq
                                       (concatenate 'list
                                           (nreverse dims) '(1 1))
@@ -419,35 +419,42 @@
                       :block-size (,block-dim 1 1))))))
 
 (defun do-make-cuda-compute (original name idxspec expr
-                                &key with where carrying parallel cluster-cache
-                                    (cuda-block-size 64))
-    (let* ((*current-compute* original)
-           (*simplify-cache* (make-hash-table))
-           (*range-cache* (make-hash-table))
-           (*minlevel-cache* (make-hash-table))
-           (*consistency-checks* (make-hash-table :test #'equal))
-           (*loop-cluster-size* cuda-block-size)
-           (*align-cluster* 16))
-        (multiple-value-bind
-                (loop-expr loop-list range-list)
-                (make-compute-loops name idxspec expr with
-                    where carrying cluster-cache
-                    :force-cluster t)
-            (let* ((nomacro-expr (expand-macros loop-expr))
-                   (nolet-expr   (expand-let nomacro-expr))
-                   (noiref-expr (simplify-iref nolet-expr))
-                   (ref-list    (collect-arefs noiref-expr))
-                  ; (opt-expr    (optimize-tree noiref-expr))
-                   (ltemp-expr (localize-temps noiref-expr ref-list range-list))
-                   (noaref-expr (expand-aref ltemp-expr)))
-                (let ((c-levels (remove nil (get-check-level-set))))
-                    (unless (null c-levels)
-                        (error "Safety checks not supported by CUDA:~%  ~A"
-                            (mapcan #'get-checks-for-level c-levels))))
-                (wrap-compute-sync-data :cuda-device ref-list
-                    `(let ((*current-compute* ',original))
-                         ,(insert-checks nil)
-                         ,(compile-expr-cuda
-                              (format nil "compute_~A" name)
-                              *loop-cluster-size* range-list
-                              (code-motion noaref-expr :pull-symbols t))))))))
+                                &key with where carrying parallel precompute cuda-flags)
+    (destructuring-bind
+            (&key (kernel-name (format nil "compute_~A" name))
+                  (block-size 64)
+                  (max-registers nil))
+            cuda-flags
+        (let* ((*current-compute* original)
+               (*simplify-cache* (make-hash-table))
+               (*range-cache* (make-hash-table))
+               (*minlevel-cache* (make-hash-table))
+               (*consistency-checks* (make-hash-table :test #'equal))
+               (*loop-cluster-size* block-size)
+               (*align-cluster* 16))
+            (multiple-value-bind
+                    (loop-expr loop-list range-list)
+                    (make-compute-loops name idxspec expr with
+                        where carrying precompute
+                        :force-cluster t)
+                (let* ((nomacro-expr (expand-macros loop-expr))
+                       (nolet-expr   (expand-let nomacro-expr))
+                       (noiref-expr (simplify-iref nolet-expr))
+                       (ref-list    (collect-arefs noiref-expr))
+                      ; (opt-expr    (optimize-tree noiref-expr))
+                       (ltemp-expr (localize-temps noiref-expr ref-list range-list))
+                       (noaref-expr (expand-aref ltemp-expr)))
+                    (let ((c-levels (remove nil (get-check-level-set))))
+                        (unless (null c-levels)
+                            (error "Safety checks not supported by CUDA:~%  ~A"
+                                (mapcan #'get-checks-for-level c-levels))))
+                    (wrap-compute-sync-data :cuda-device ref-list
+                        `(let ((*current-compute* ',original))
+                             ,(insert-checks nil)
+                             ,(compile-expr-cuda
+                                  (cond-list
+                                      (t :name kernel-name)
+                                      (max-registers
+                                          :max-registers max-registers))
+                                  *loop-cluster-size* range-list
+                                  (code-motion noaref-expr :pull-symbols t)))))))))

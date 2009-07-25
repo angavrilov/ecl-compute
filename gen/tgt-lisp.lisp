@@ -3,8 +3,7 @@
 (in-package fast-compute)
 
 (defun do-make-lisp-compute (original name idxspec expr
-                                &key with where carrying parallel cluster-cache
-                                    cuda-block-size)
+                                &key with where carrying parallel precompute cuda-flags)
     (let* ((*current-compute* original)
            (*simplify-cache* (make-hash-table))
            (*range-cache* (make-hash-table))
@@ -12,7 +11,7 @@
            (*consistency-checks* (make-hash-table :test #'equal)))
         (multiple-value-bind
                 (loop-expr loop-list range-list)
-                (make-compute-loops name idxspec expr with where carrying cluster-cache)
+                (make-compute-loops name idxspec expr with where carrying precompute)
             (let* ((nolet-expr (expand-let loop-expr))
                    (noiref-expr (simplify-iref nolet-expr))
                    (ref-list    (collect-arefs noiref-expr))

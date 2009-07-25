@@ -2,6 +2,8 @@
 
 (in-package fast-compute)
 
+(defvar *log-cuda-memcpy* nil)
+
 (defstruct multivalue
     (name nil :type symbol)
     (data-dims nil :type list :read-only t)
@@ -55,8 +57,9 @@
                                             (setf (multivalue-cuda-valid mv) nil)))
                                    ((not (eql cur-mode :write-all))
                                        `(unless (multivalue-cuda-valid mv)
-                                            (format t "host->device: ~A (~A)~%"
-                                                ',op (multivalue-name mv))
+                                            (when *log-cuda-memcpy*
+                                                (format t "host->device: ~A (~A)~%"
+                                                    ',op (multivalue-name mv)))
                                             (cuda:copy-linear-for-array mvcb mvarr)))
                                    (t
                                        `(setf (multivalue-cuda-valid mv) t))
@@ -67,8 +70,9 @@
                                 (cond-list
                                    ((not (eql cur-mode :write-all))
                                        `(unless (multivalue-host-valid mv)
-                                            (format t "device->host: ~A (~A)~%"
-                                                ',op (multivalue-name mv))
+                                            (when *log-cuda-memcpy*
+                                                (format t "device->host: ~A (~A)~%"
+                                                    ',op (multivalue-name mv)))
                                             (cuda:copy-linear-for-array
                                                 mvcb mvarr :from-device t)))
                                    (t
