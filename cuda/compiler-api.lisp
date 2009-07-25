@@ -47,17 +47,22 @@
 (defparameter *compiled-cache* (make-hash-table :test #'equal))
 
 (defvar *nvcc* "nvcc")
-(defvar *nvcc-flags* "--ptx")
+(defvar *nvcc-flags* "")
+(defvar *nvcc-cubin* nil)
 
 (defvar *print-kernel-code* nil)
 
 (defun do-compile-kernel (code)
     (let* ((tmpname (ext:mkstemp #P"TMP:CUDAKERNEL"))
            (srcname (make-pathname :type "cu" :defaults tmpname))
-           (outname (make-pathname :type "ptx" :defaults tmpname))
+           (outname (make-pathname
+                        :type (if *nvcc-cubin* "cubin" "ptx")
+                        :defaults tmpname))
            (cmd (format nil
-                    "~A ~A -m~A --output-file=~A ~A"
-                    *nvcc* *nvcc-flags*
+                    "~A ~A ~A -m~A --output-file=~A ~A"
+                    *nvcc*
+                    (if *nvcc-cubin* "--cubin" "--ptx")
+                    *nvcc-flags*
                     (* +ptr-size+ 8)
                     outname srcname)))
         (with-open-file (src srcname :direction :output
