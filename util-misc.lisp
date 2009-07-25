@@ -20,10 +20,19 @@
           (xsym (gensym)))
         (reduce
             #'(lambda (tail clause)
-                  `(let ((,xsym ,tail))
-                       (if ,(first clause)
-                           (list* ,@(rest clause) ,xsym)
-                           ,xsym)))
+                  (cond
+                      ((eql (first clause) t)
+                          `(list* ,@(rest clause) ,tail))
+                      ((eql (first clause) nil)
+                          tail)
+                      ((eql tail nil)
+                          `(if ,(first clause)
+                               (list ,@(rest clause))))
+                      (t
+                          `(let ((,xsym ,tail))
+                               (if ,(first clause)
+                                   (list* ,@(rest clause) ,xsym)
+                                   ,xsym)))))
             (rest ritems)
             :initial-value (first ritems))))
 
