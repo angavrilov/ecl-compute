@@ -6,6 +6,10 @@
 (cl-match:defpattern si:quasiquote (&rest args)
     (macroexpand-1 (cons 'si:quasiquote args)))
 
+;; Must be done separately so that the change
+;; to *features* propagates to #+cuda below.
+(load (merge-pathnames "cuda/load-auto.lisp" *load-pathname*))
+
 (labels ((load-interp (name)
              (load (merge-pathnames name *load-pathname*)))
          (load-compile (name)
