@@ -172,7 +172,7 @@
 
 ;;; Device capabilities
 
-(defstruct capabilities
+(defstruct (capabilities (:conc-name caps-))
     revision name memory mp-count const-memory shared-memory reg-count warp-size
     max-threads tex-alignment has-overlap has-mapping has-timeout)
 
@@ -238,6 +238,7 @@
 (defstruct context
     (device (error "Device required") :read-only t)
     (handle (error "Handle required") :read-only t)
+    (device-caps (error "Caps required") :read-only t)
     (linear-buffers nil)
     (module-cache (make-hash-table :test #'equal))
     (kernel-cache (make-hash-table :test #'eq)))
@@ -282,7 +283,9 @@
                        @(return) = ecl_make_foreign_data(#3, 0, ctx);
                    }"))
            (context
-               (make-context :device device :handle handle)))
+               (make-context
+                   :device device :handle handle
+                   :device-caps (get-caps device))))
         (ext:set-finalizer context #'destroy-context)
         (setf *current-context* context)))
 
@@ -476,44 +479,94 @@
     destroy-function-handle valid-function-handle-p
     "CUfunction" "")
 
-(defun load-module (code)
+(defun load-module (code max-registers)
     (check-type code base-string)
     (assert (valid-context-p))
     (let* ((cache (context-module-cache *current-context*))
-           (handle (gethash code cache)))
+           (tag   (list code max-registers))
+           (handle (gethash tag cache)))
         (if (valid-module-handle-p handle)
             handle
             (let ((new-handle
                       (ffi:c-inline
-                          (code 'module-pointer)
-                          (:object :object)
+                          (code 'module-pointer max-registers)
+                          (:object :object :int)
                           :object "{
                               CUmodule mod;
+                              int max_regs = #2;
+                              CUjit_option options[] = { CU_JIT_MAX_REGISTERS };
+                              void *opt_vals[] = { (void*)max_regs };
                               int fpstate = fedisableexcept(FE_ALL_EXCEPT);
-                              CUresult res = cuModuleLoadData(&mod, #0->base_string.self);
+                              CUresult res = cuModuleLoadDataEx(
+                                      &mod, #0->base_string.self,
+                                      1, &options, &opt_vals
+                                  );
                               feenableexcept(fpstate);
                               check_error(res);
                               @(return) = ecl_make_foreign_data(#1, 0, mod);
                           }")))
-                (setf (gethash code cache) new-handle)))))
+                (setf (gethash tag cache) new-handle)))))
+
+(defun module-get-function (module name)
+    (check-type name base-string)
+    (ffi:c-inline
+        (name module 'function-pointer)
+        (:object :object :object)
+        :object "{
+            CUmodule mod = ecl_foreign_data_pointer_safe(#1);
+            CUfunction fun;
+            check_error(cuModuleGetFunction(&fun, mod, #0->base_string.self));
+            @(return) = ecl_make_foreign_data(#2, 0, fun);
+        }"))
+
+(defun function-info (func)
+    (check-ffi-type func function-pointer)
+    (ffi:c-inline
+        (func) (:object)
+        (values :int :int :int :int)
+        "{
+            CUfunction fun = #0->foreign.data;
+            int tmp;
+            check_error(cuFuncGetAttribute(&tmp, CU_FUNC_ATTRIBUTE_NUM_REGS, fun));
+            @(return 0) = tmp;
+            check_error(cuFuncGetAttribute(&tmp, CU_FUNC_ATTRIBUTE_LOCAL_SIZE_BYTES, fun));
+            @(return 1) = tmp;
+            check_error(cuFuncGetAttribute(&tmp, CU_FUNC_ATTRIBUTE_SHARED_SIZE_BYTES, fun));
+            @(return 2) = tmp;
+            check_error(cuFuncGetAttribute(&tmp, CU_FUNC_ATTRIBUTE_MAX_THREADS_PER_BLOCK, fun));
+            @(return 3) = tmp;
+        }"))
+
+(defun print-function-info (name func)
+    (multiple-value-bind
+            (regs local shared max-threads)
+            (function-info func)
+        (let* ((caps (context-device-caps *current-context*))
+               (max-rt (floor (caps-reg-count caps) regs))
+               (max-t (min max-threads max-rt))
+               (max-b (floor (caps-shared-memory caps) shared))
+               (max-w (/ max-t (caps-warp-size caps))))
+            (format t "Loaded ~A: ~A regs, ~A shared; max ~A blocks/~A~@[(~A)~] threads/~A warps.~%"
+                name regs shared max-b max-t
+                (if (> max-rt max-t) max-rt) max-w)
+            (when (< max-w 6)
+                (format t "!!! SLOW: Low occupancy !!!~%"))
+            (when (> local 0)
+                (format t "!!! SLOW: ~A bytes (~A words) of uncached local memory !!!~%"
+                    local (/ local 4))))))
+
+(defvar *log-kernel-loads* t)
 
 (defun load-kernel (key)
     (let* ((cache (context-kernel-cache *current-context*))
            (handle (gethash key cache)))
         (if handle handle
-            (progn
-                (check-type (car key) base-string)
-                (let* ((module (load-module (cdr key)))
-                       (new-handle
-                           (ffi:c-inline
-                              ((car key) module 'function-pointer)
-                              (:object :object :object)
-                              :object "{
-                                  CUmodule mod = ecl_foreign_data_pointer_safe(#1);
-                                  CUfunction fun;
-                                  check_error(cuModuleGetFunction(&fun, mod, #0->base_string.self));
-                                  @(return) = ecl_make_foreign_data(#2, 0, fun);
-                              }")))
+            (destructuring-bind
+                    (func-name code &key (max-registers 64)) key
+                (let* ((module (load-module code max-registers))
+                       (new-handle (module-get-function module func-name)))
+                    (when *log-kernel-loads*
+                        (print-function-info func-name new-handle))
                     (setf (gethash key cache) new-handle))))))
 
 (defun discard-code-cache ()
