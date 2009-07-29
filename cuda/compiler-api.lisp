@@ -114,5 +114,6 @@ void ~A(~{~A~^, ~}) {~%~A~%}~%"
                    (args (if max-registers
                              `(:max-registers ,max-registers))))
                 `(let ((,func-var (load-kernel '(,name ,compiled-code ,@args))))
+                     (declare (optimize (safety 1) (debug 0)))
                      ,@arg-forms
                      (launch-kernel ,func-var ,arg-size ,@block-size ,@grid-size))))))

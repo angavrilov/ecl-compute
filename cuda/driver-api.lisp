@@ -12,6 +12,7 @@
         "LINEAR-SIZE" "LINEAR-EXTENT" "LINEAR-PITCH" "LINEAR-PITCHED-P"
         "CREATE-LINEAR-FOR-ARRAY" "COPY-LINEAR-FOR-ARRAY"
         "KERNEL" "DISCARD-CODE-CACHE"
+        "*LAUNCH-ASYNC*" "WITH-ASYNC" "SYNCHRONIZE"
     ))
 
 (in-package cuda)
@@ -226,6 +227,21 @@
             :warp-size warp-size :tex-alignment tex-alignment :has-overlap (/= 0 has-overlap)
             :has-mapping (/= 0 has-mapping) :has-timeout (/= 0 has-timeout) :max-threads max-threads)))
 
+;;; CUDA streams
+
+(def-foreign-handle stream-pointer
+    destroy-stream-handle valid-stream-handle-p
+    "CUstream" "check_error(cuStreamDestroy(ptr))")
+
+(defun create-stream ()
+    (ffi:c-inline
+        ('stream-pointer)
+        (:object)
+        :object "{
+            CUstream str;
+            check_error(cuStreamCreate(&str,0));
+            @(return) = ecl_make_foreign_data(#0, 0, str);
+        }"))
 
 ;;; CUDA context management
 
@@ -239,6 +255,7 @@
     (device (error "Device required") :read-only t)
     (handle (error "Handle required") :read-only t)
     (device-caps (error "Caps required") :read-only t)
+    (async-stream (create-stream) :read-only t)
     (linear-buffers nil)
     (module-cache (make-hash-table :test #'equal))
     (kernel-cache (make-hash-table :test #'eq)))
@@ -373,8 +390,18 @@
     (* (ffi:get-slot-value buffer 'linear-buffer 'pitch)
        (ffi:get-slot-value buffer 'linear-buffer 'height)))
 
+(declaim (ftype (function (t) fixnum) linear-pitch))
+
 (defun linear-pitch (buffer)
-    (ffi:get-slot-value buffer 'linear-buffer 'pitch))
+    (declare (optimize (safety 0) (debug 0)))
+    (ffi:c-inline
+        (buffer 'linear-buffer)
+        (:object :object)
+        :int "{
+            if (!FOREIGN_WITH_TAGP(#0,#1)) FEerror(\"Not a linear buffer: ~A\",1,#0);
+            LinearBuffer *buf = (#0)->foreign.data;
+            @(return) = buf->pitch;
+        }"))
 
 (defun linear-pitched-p (buffer)
     (/= (ffi:get-slot-value buffer 'linear-buffer 'pitch)
@@ -558,6 +585,7 @@
 (defvar *log-kernel-loads* t)
 
 (defun load-kernel (key)
+    (declare (optimize (safety 1) (debug 0)))
     (let* ((cache (context-kernel-cache *current-context*))
            (handle (gethash key cache)))
         (if handle handle
@@ -585,6 +613,7 @@
 
 (defmacro make-param-set-simple (name ltype ctype cmd)
    `(defun ,name (fhandle offset value)
+        (declare (optimize (safety 0) (debug 0)))
         (ffi:c-inline
             (fhandle offset value 'function-pointer)
             (:object :int ,ltype :object)
@@ -612,6 +641,7 @@
     param-set-double :double "double" "cuParamSetv(fun,ofs,&val,sizeof(val))")
 
 (defun param-set-ptr (fhandle offset value)
+    (declare (optimize (safety 0) (debug 0)))
     (ffi:c-inline
         (fhandle offset value 'function-pointer 'linear-buffer)
         (:object :int :object :object :object)
@@ -629,16 +659,42 @@
 
 ;;; Kernel launch
 
+(defparameter *launch-async* nil)
+
 (defun launch-kernel (fhandle arg-size blkx blky blkz grdx grdy)
+    (declare (optimize (safety 0) (debug 0)))
     (ffi:c-inline
-        (fhandle 'function-pointer arg-size blkx blky blkz grdx grdy)
-        (:object :object :int :int :int :int :int :int)
+        (fhandle 'function-pointer arg-size blkx blky blkz grdx grdy
+            *launch-async* 'stream-pointer)
+        (:object :object :int :int :int :int :int :int
+            :object :object)
         :void "{
             if (!FOREIGN_WITH_TAGP(#0,#1)) FEerror(\"Not a function handle\",1,#0);
             {
+                cl_object sref = #8;
                 CUfunction fun = #0->foreign.data;
                 check_error(cuParamSetSize(fun,#2));
                 check_error(cuFuncSetBlockShape(fun,#3,#4,#5));
-                check_error(cuLaunchGrid(fun,#6,#7));
+                if (sref == Cnil)
+                    check_error(cuLaunchGrid(fun,#6,#7));
+                else if (sref == Ct)
+                    check_error(cuLaunchGridAsync(fun,#6,#7,0));
+                else {
+                    if (!FOREIGN_WITH_TAGP(sref,#9)) FEerror(\"Not a stream handle\",1,sref);
+                    CUstream str = sref->foreign.data;
+                    check_error(cuLaunchGridAsync(fun,#6,#7,str));
+                }
             }
+        }"))
+
+(defmacro with-async (&body code)
+    `(let ((*launch-async*
+               (context-async-stream *current-context*)))
+         ,@code))
+
+(defun synchronize ()
+    (ffi:c-inline
+        () ()
+        :void "{
+            check_error(cuCtxSynchronize());
         }"))

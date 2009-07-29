@@ -68,3 +68,13 @@
                     `(if (cuda:valid-context-p)
                          ,(apply #'do-make-cuda-compute original args)
                          ,lisp-code))))))
+
+#-cuda
+(defmacro compute-batch (&body code)
+    `(progn ,@code))
+
+#+cuda
+(defmacro compute-batch (&body code)
+    `(unwind-protect
+         (cuda:with-async ,@code)
+         (cuda:synchronize)))

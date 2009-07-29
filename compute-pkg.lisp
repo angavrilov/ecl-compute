@@ -15,6 +15,7 @@
         "*COMPUTE-WITH-CUDA*"
         "DUMP-ARRAY" "RESTORE-ARRAY"
         "ALLOW-DENORMALIZED-FLOATS"
+        "COMPUTE-BATCH"
     )
     (:shadowing-import-from "COMMON-LISP" "LET" "COND" "LAST")
     (:shadowing-import-from "FSET"
