@@ -7,7 +7,7 @@
 (defstruct multivalue
     (name nil :type symbol)
     (data-dims nil :type list :read-only t)
-    (data-array nil :type (array single-float) :read-only t)
+    (data-array nil :type (array single-float))
   #+cuda
     (cuda-buffer nil)
   #+cuda
@@ -41,7 +41,7 @@
                     (t
                         (error "Unknown keyword: ~A" op)))
                 (push
-                   `(let* ((mv ,op)
+                   `(let* ((mv (the multivalue ,op))
                            (mvcb (multivalue-cuda-buffer mv))
                            (mvarr (multivalue-data-array mv)))
                         (declare (ignorable mvcb mvarr))
@@ -81,7 +81,11 @@
                                        `(setf (multivalue-cuda-valid mv) nil))))))
                     cmd-list)))
         (if cmd-list
-            `(progn ,@(nreverse cmd-list) ,body)
+            `(progn
+                (locally
+                    (declare (optimize (safety 1) (debug 0)))
+                    ,@(nreverse cmd-list))
+                ,body)
             body)))
 
 (defmacro multivalue-sync (&rest args)

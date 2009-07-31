@@ -8,9 +8,11 @@
     (match expr
         (`(arr-dim (multivalue-data ,mv ,@_) ,idx ,rank)
             (if (= idx (1- rank))
-               `(/ (cuda:linear-pitch
-                       (multivalue-cuda-buffer ,mv))
-                    4)
+               `(the fixnum
+                    (/ (the fixnum
+                           (cuda:linear-pitch
+                               (multivalue-cuda-buffer ,mv)))
+                        4))
                `(array-dimension
                     (multivalue-data-array ,mv)
                     ,idx)))

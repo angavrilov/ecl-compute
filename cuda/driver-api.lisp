@@ -124,6 +124,7 @@
                 }" ctype free-code)))
 
         (defun ,valid-f (handle)
+            (declare (optimize (safety 0) (debug 0)))
             (ffi:c-inline (handle ',typename) (:object :object) :object
                 "((FOREIGN_WITH_TAGP(#0,#1) && ((#0)->foreign.data != NULL))
                     ? Ct : Cnil)"
@@ -168,7 +169,7 @@
             @(return) = count;
         }"))
 
-(defconstant +device-count+ (get-device-count))
+(defparameter +device-count+ (get-device-count))
 
 
 ;;; Device capabilities
@@ -325,6 +326,7 @@
 ")
 
 (defun valid-linear-buffer-p (handle)
+    (declare (optimize (safety 0) (debug 0)))
     (ffi:c-inline (handle 'linear-buffer) (:object :object) :object
         "((FOREIGN_WITH_TAGP(#0,#1) &&
             (((LinearBuffer*)((#0)->foreign.data))->device_ptr != NULL))
