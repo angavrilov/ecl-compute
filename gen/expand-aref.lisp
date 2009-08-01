@@ -2,39 +2,58 @@
 
 (in-package fast-compute)
 
+(defun join* (lv rv)
+    (cond
+        ((null lv) rv)
+        ((null rv) lv)
+        (t `(* ,lv ,rv))))
+
+(defun aref-stride-list (name idx-cnt &optional (total-cnt idx-cnt))
+    (loop
+        with stride = nil
+        for i from (1- idx-cnt) downto 1
+        collect
+            (setf stride
+                (join* stride `(arr-dim ,name ,i ,total-cnt)))
+        into lst
+        finally
+            (return
+                (if (> idx-cnt 0)
+                    (nreverse (cons nil lst))))))
+
+(defun get-summands (expr)
+    (match expr
+        (`(+ ,@rest) rest)
+        (x (list x))))
+
+(defun sort-summands-by-level (exprs)
+    (let* ((ofs-items
+               (get-summands
+                   (simplify-rec-once #'flatten-exprs-1 `(+ ,@exprs))))
+           (num-ofs-items (remove-if-not #'numberp ofs-items))
+           (var-ofs-items (remove-if #'numberp ofs-items))
+           (levels   (sort
+                         (remove-duplicates
+                             (mapcar #'min-loop-level var-ofs-items))
+                         #'level>))
+           (ofs-groups (mapcar
+                           #'(lambda (lvl)
+                                 (simplify-rec-once #'treeify-1
+                                     `(+ ,@(remove lvl var-ofs-items
+                                               :test-not #'eql :key #'min-loop-level))))
+                            levels)))
+        (nconc ofs-groups num-ofs-items)))
+
 (defun expand-aref-1 (expr old-expr)
     (match expr
         (`(aref ,name ,@idxvals)
             (let* ((idx-cnt    (length idxvals))
-                   (stride     nil)
-                   (stride-lst
-                       (loop for i from (1- idx-cnt) downto 0
-                        collect (prog1 stride
-                                   (let ((cstride `(arr-dim ,name ,i ,idx-cnt)))
-                                       (setf stride
-                                           (if stride
-                                               `(* ,stride ,cstride)
-                                               cstride))))))
-                   (ofs-lst (mapcar #'(lambda (idx istride)
-                                          (if istride `(* ,idx ,istride) idx))
-                                idxvals (nreverse stride-lst)))
-                   (ofs-expr (simplify-rec-once #'flatten-exprs-1 `(+ ,@ofs-lst)))
-                   (ofs-items (match ofs-expr (`(+ ,@rest) rest) (x (list x))))
-                   (num-ofs-items (remove-if-not #'numberp ofs-items))
-                   (var-ofs-items (remove-if #'numberp ofs-items))
-                   (levels   (sort
-                                 (remove-duplicates
-                                     (mapcar #'min-loop-level var-ofs-items))
-                                 #'level>))
-                   (ofs-groups (mapcar
-                                   #'(lambda (lvl)
-                                         (simplify-rec-once #'treeify-1
-                                             `(+ ,@(remove lvl var-ofs-items
-                                                       :test-not #'eql :key #'min-loop-level))))
-                                    levels)))
+                   (stride-lst (aref-stride-list name idx-cnt))
+                   (ofs-lst    (mapcar #'join* idxvals stride-lst))
+                   (summands   (sort-summands-by-level ofs-lst)))
                 `(ptr-deref
                      ,(reduce #'(lambda (base ofs) `(ptr+ ,base ,ofs))
-                          (nconc ofs-groups num-ofs-items)
+                          summands
                           :initial-value `(arr-ptr ,name)))))
         (`(tmp-ref ,name)
             nil)

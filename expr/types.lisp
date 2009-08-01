@@ -7,6 +7,8 @@
 
 (defun propagate-upper-type (expr type)
     (let ((cur-type (gethash expr *upper-type-cache*)))
+        (when (and (eql cur-type 'float) (eql type 'integer))
+            (setf cur-type nil))
         (when (and cur-type type (not (eql cur-type type))
                     (not (and (eql type 'float) (eql cur-type 'integer))))
             (error "Conflicting type requirement: ~A must be both ~A and ~A"
@@ -28,6 +30,10 @@
                     (`(tmp-ref ,name ,@indices)
                         (mark-list (list name) 'array)
                         (mark-list indices 'integer))
+                    (`(texture-ref-int ,_ ,idx)
+                        (mark-list (list idx) 'integer))
+                    (`(texture-ref ,_ ,@indices)
+                        (mark-list indices 'float))
                     (`(temporary ,_ ,dims ,@_)
                         (mark-list dims 'integer))
                     (`(,(or 'aref 'iref) ,arr ,@indices)
@@ -88,7 +94,9 @@
                         (get-bottom-type minv)
                         (get-bottom-type maxv)
                         'integer)
-                    (`(,(or 'aref 'iref 'tmp-ref) ,arr ,@idxlst)
+                    (`(,(or 'aref 'iref 'tmp-ref
+                            'texture-ref 'texture-ref-int)
+                          ,arr ,@idxlst)
                         (get-bottom-type arr)
                         (dolist (idx idxlst) (get-bottom-type idx))
                         'float)

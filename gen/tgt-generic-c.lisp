@@ -169,6 +169,18 @@
         (recurse ptr)
         (text ")"))
 
+    (`(texture-ref-int ,name ,idx)
+        (text "tex1Dfetch(~A, " name)
+        (recurse idx)
+        (text ")"))
+
+    (`(texture-ref ,name ,idx1 ,idx2)
+        (text "tex2D(~A, " name)
+        (recurse idx2)
+        (text ", ")
+        (recurse idx1)
+        (text ")"))
+
     ((when stmt-p
          `(if ,icond ,a ,b))
         (text "if (")

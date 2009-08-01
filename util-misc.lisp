@@ -194,12 +194,12 @@
             (error "Cannot redefine ~A for ~A to: ~A~% - already set to: ~A"
                 tag sym value old-value))))
 
-(defun has-atom (tree sym)
-    (if (and tree (consp tree))
-        (reduce #'(lambda (a b) (or a b))
-            (mapcar #'(lambda (x) (has-atom x sym))
-                tree))
-        (eql tree sym)))
+(defun has-atom (tree &rest syms)
+    (labels ((recurse (tree)
+                (if (and tree (consp tree))
+                    (some #'recurse tree)
+                    (member tree syms))))
+        (recurse tree)))
 
 (defun apply-unless-nil (fun args)
     (if (some #'null args)

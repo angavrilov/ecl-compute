@@ -371,7 +371,8 @@
                                    (find (gethash expr types)
                                        '(float integer))
                                    (not (has-atom (get-full-expr expr)
-                                            'arr-ptr)))
+                                            'arr-ptr 'texture-ref
+                                            'texture-ref-int)))
                              `(setf-tmp ,var ,expr))
                             (let ((name (temp-symbol-name var)))
                                 (ref-arg name expr)
@@ -425,7 +426,8 @@
     (destructuring-bind
             (&key (kernel-name (format nil "compute_~A" name))
                   (block-size 64)
-                  (max-registers nil))
+                  (max-registers nil)
+                  (textures nil))
             cuda-flags
         (let* ((*current-compute* original)
                (*simplify-cache* (make-hash-table))
@@ -444,19 +446,23 @@
                        (noiref-expr (simplify-iref nolet-expr))
                        (ref-list    (collect-arefs noiref-expr))
                       ; (opt-expr    (optimize-tree noiref-expr))
-                       (ltemp-expr (localize-temps noiref-expr ref-list range-list))
-                       (noaref-expr (expand-aref ltemp-expr)))
-                    (let ((c-levels (remove nil (get-check-level-set))))
-                        (unless (null c-levels)
-                            (error "Safety checks not supported by CUDA:~%  ~A"
-                                (mapcan #'get-checks-for-level c-levels))))
-                    (wrap-compute-sync-data :cuda-device ref-list
-                        `(let ((*current-compute* ',original))
-                             ,(insert-checks nil)
-                             ,(compile-expr-cuda
-                                  (cond-list
-                                      (t :name kernel-name)
-                                      (max-registers
-                                          :max-registers max-registers))
-                                  *loop-cluster-size* range-list
-                                  (code-motion noaref-expr :pull-symbols t)))))))))
+                       (ltemp-expr (localize-temps noiref-expr ref-list range-list)))
+                    (multiple-value-bind
+                            (tex-expr tex-list)
+                            (use-textures (convert 'set textures) ltemp-expr)
+                        (let ((c-levels (remove nil (get-check-level-set))))
+                            (unless (null c-levels)
+                                (error "Safety checks not supported by CUDA:~%  ~A"
+                                    (mapcan #'get-checks-for-level c-levels))))
+                        (wrap-compute-sync-data :cuda-device ref-list
+                            `(let ((*current-compute* ',original))
+                                 ,(insert-checks nil)
+                                 ,(compile-expr-cuda
+                                      (cond-list
+                                          (t :name kernel-name)
+                                          (tex-list :textures tex-list)
+                                          (max-registers
+                                              :max-registers max-registers))
+                                      *loop-cluster-size* range-list
+                                      (code-motion (expand-aref tex-expr)
+                                          :pull-symbols t))))))))))

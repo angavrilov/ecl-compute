@@ -62,6 +62,7 @@
                   "gen/tgt-generic-c.lisp"
                   "gen/tgt-sse-intrin.lisp"
                   "gen/tgt-inline-c.lisp"
+           #+cuda "gen/cuda-textures.lisp"
            #+cuda "gen/minimize-live.lisp"
            #+cuda "gen/splice-carried.lisp"
            #+cuda "gen/localize-temp.lisp"

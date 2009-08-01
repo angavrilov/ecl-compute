@@ -74,6 +74,7 @@
                   ;; Don't factor constants and loop vars
                   (when (match expr
                             ((type number _) t)
+                            ((type string _) t)
                             ('nil t)
                             (`(_grp ,@_) t)
                             ((type symbol var) (not pull-symbols))
