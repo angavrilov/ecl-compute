@@ -44,6 +44,23 @@
             (nreverse arg-forms)
             offset)))
 
+(defun get-texture-name (spec)
+    (third spec))
+
+(defun get-texture-decl (spec)
+    (destructuring-bind
+        (vtype dim name arg) spec
+        (assert (eql vtype :float))
+        (assert (or (eql dim 1) (eql dim 2)))
+        (format nil "texture<float,~A> ~A" dim name)))
+
+(defun get-texture-assn (fun var idx spec)
+    (destructuring-bind
+        (vtype dim name arg) spec
+        (ecase dim
+            (1 `(param-set-texture-1d ,fun (svref ,var ,idx) ,arg))
+            (2 `(param-set-texture-2d ,fun (svref ,var ,idx) ,arg)))))
+
 (defparameter *compiled-cache* (make-hash-table :test #'equal))
 
 (defvar *nvcc* "nvcc")
@@ -96,24 +113,39 @@
 
 (defmacro kernel (args code &key
                      (grid-size '(1 1)) (block-size '(1 1 1))
-                     (name "kernel_func") (max-registers nil))
+                     (name "kernel_func") (max-registers nil)
+                     (textures nil))
     (assert (= (length block-size) 3)
         (block-size) "Bad block size spec: ~A" block-size)
     (assert (= (length grid-size) 2)
         (grid-size) "Bad grid size spec: ~A" grid-size)
-    (let* ((func-var (gensym)))
+    (let* ((func-var (gensym))
+           (grp-var (gensym)))
         (multiple-value-bind
             (arg-strings arg-forms arg-size)
             (translate-args func-var args)
             (let* ((full-code
                        (format nil
-                           "extern \"C\" __global__ __device__
+                           "~{~A;~%~}extern \"C\" __global__ __device__
 void ~A(~{~A~^, ~}) {~%~A~%}~%"
+                           (mapcar #'get-texture-decl textures)
                            name arg-strings code))
                    (compiled-code (compile-kernel full-code))
+                   (texs (if textures
+                             (list :textures
+                                 (mapcar #'get-texture-name textures))))
                    (args (if max-registers
-                             `(:max-registers ,max-registers))))
-                `(let ((,func-var (load-kernel '(,name ,compiled-code ,@args))))
+                             (list* :max-registers max-registers texs)
+                             texs))
+                   (load-spec `(load-kernel '(,name ,compiled-code ,@args)))
+                   (letspec (if textures
+                                `((,grp-var (the vector ,load-spec))
+                                  (,func-var (svref ,grp-var 0)))
+                                `((,func-var ,load-spec)))))
+                `(let* ,letspec
                      (declare (optimize (safety 1) (debug 0)))
                      ,@arg-forms
+                     ,@(loop for tex in textures
+                             for idx from 1
+                           collect (get-texture-assn func-var grp-var idx tex))
                      (launch-kernel ,func-var ,arg-size ,@block-size ,@grid-size))))))

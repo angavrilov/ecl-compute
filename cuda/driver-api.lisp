@@ -508,6 +508,10 @@
     destroy-function-handle valid-function-handle-p
     "CUfunction" "")
 
+(def-foreign-handle texture-pointer
+    destroy-texture-handle valid-texture-handle-p
+    "CUtexref" "")
+
 (defun load-module (code max-registers)
     (check-type code base-string)
     (assert (valid-context-p))
@@ -546,6 +550,18 @@
             CUfunction fun;
             check_error(cuModuleGetFunction(&fun, mod, #0->base_string.self));
             @(return) = ecl_make_foreign_data(#2, 0, fun);
+        }"))
+
+(defun module-get-texture (module name)
+    (check-type name base-string)
+    (ffi:c-inline
+        (name module 'texture-pointer)
+        (:object :object :object)
+        :object "{
+            CUmodule mod = ecl_foreign_data_pointer_safe(#1);
+            CUtexref tex;
+            check_error(cuModuleGetTexRef(&tex, mod, #0->base_string.self));
+            @(return) = ecl_make_foreign_data(#2, 0, tex);
         }"))
 
 (defun function-info (func)
@@ -592,12 +608,23 @@
            (handle (gethash key cache)))
         (if handle handle
             (destructuring-bind
-                    (func-name code &key (max-registers 64)) key
+                    (func-name code &key
+                        (max-registers 64)
+                        (textures nil has-tex-p)) key
                 (let* ((module (load-module code max-registers))
-                       (new-handle (module-get-function module func-name)))
+                       (new-handle (module-get-function module func-name))
+                       (tex-refs (mapcar
+                                     #'(lambda (name) (module-get-texture module name))
+                                     textures)))
                     (when *log-kernel-loads*
                         (print-function-info func-name new-handle))
-                    (setf (gethash key cache) new-handle))))))
+                    (setf (gethash key cache)
+                        (if has-tex-p
+                            (make-array
+                                (1+ (length tex-refs))
+                                :initial-contents
+                                    (list* new-handle tex-refs))
+                            new-handle)))))))
 
 (defun discard-code-cache ()
     (when (valid-context-p)
@@ -658,6 +685,51 @@
             }
         }"))
 
+(defun param-set-texture-1d (fhandle thandle value)
+    (declare (optimize (safety 0) (debug 0)))
+    (ffi:c-inline
+        (fhandle thandle value
+            'function-pointer 'texture-pointer 'linear-buffer)
+        (:object :object :object :object :object :object)
+        :void "{
+            if (!FOREIGN_WITH_TAGP(#0,#3)) FEerror(\"Not a function handle\",1,#0);
+            if (!FOREIGN_WITH_TAGP(#1,#4)) FEerror(\"Not a texture handle\",1,#1);
+            if (!FOREIGN_WITH_TAGP(#2,#5)) FEerror(\"Not a linear buffer\",1,#2);
+            {
+                CUfunction fun = #0->foreign.data;
+                CUtexref tex = #1->foreign.data;
+                LinearBuffer *pbuf = #2->foreign.data;
+                if (!pbuf->device_ptr) FEerror(\"Linear buffer not allocated.\",0);
+                if (pbuf->height != 1) FEerror(\"2D linear buffer in 1D texture.\",0);
+                check_error(cuTexRefSetAddress(NULL,tex,pbuf->device_ptr,pbuf->width));
+                check_error(cuParamSetTexRef(fun,CU_PARAM_TR_DEFAULT,tex));
+            }
+        }"))
+
+(defun param-set-texture-2d (fhandle thandle value)
+    (declare (optimize (safety 0) (debug 0)))
+    (ffi:c-inline
+        (fhandle thandle value
+            'function-pointer 'texture-pointer 'linear-buffer)
+        (:object :object :object :object :object :object)
+        :void "{
+            if (!FOREIGN_WITH_TAGP(#0,#3)) FEerror(\"Not a function handle\",1,#0);
+            if (!FOREIGN_WITH_TAGP(#1,#4)) FEerror(\"Not a texture handle\",1,#1);
+            if (!FOREIGN_WITH_TAGP(#2,#5)) FEerror(\"Not a linear buffer\",1,#2);
+            {
+                CUfunction fun = #0->foreign.data;
+                CUtexref tex = #1->foreign.data;
+                LinearBuffer *pbuf = #2->foreign.data;
+                CUDA_ARRAY_DESCRIPTOR desc;
+                if (!pbuf->device_ptr) FEerror(\"Linear buffer not allocated.\",0);
+                desc.Format = CU_AD_FORMAT_FLOAT;
+                desc.Height = pbuf->height;
+                desc.NumChannels = 1;
+                desc.Width = pbuf->width/4;
+                check_error(cuTexRefSetAddress2D(tex,&desc,pbuf->device_ptr,pbuf->pitch));
+                check_error(cuParamSetTexRef(fun,CU_PARAM_TR_DEFAULT,tex));
+            }
+        }"))
 
 ;;; Kernel launch
 
