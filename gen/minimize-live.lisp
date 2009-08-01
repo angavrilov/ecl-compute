@@ -56,6 +56,15 @@
                              `(setf ,(type list tgt) ,rhs))
                              `(setf ,(mapcar #'unwrap-split tgt)
                                     ,(unwrap rhs)))
+                         ;; Keep mul-add groups
+                         ((when split-all
+                              `(+ (* ,_ ,_) ,z))
+                             (join+ (unwrap (second expr))
+                                 (unwrap-split z)))
+                         ((when split-all
+                              `(+ ,z (* ,_ ,_)))
+                             (join+ (unwrap-split z)
+                                 (unwrap (third expr))))
                          ((when split-all _)
                              (mapcar-save-old #'unwrap-split expr))
                          (_
