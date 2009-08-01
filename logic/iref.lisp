@@ -29,12 +29,21 @@
                 (push `(< ,(or max-val expr) ,dim) checks)))
         checks))
 
+(defun iref-macro-p (name)
+    (get name 'mv-iref-macro))
+
 (defun expand-iref (name idxvals &key verbose-p)
     (let ((indexes    (get name 'mv-indexes))
           (layout     (get name 'mv-layout))
-          (dimensions (get name 'mv-dimensions)))
+          (dimensions (get name 'mv-dimensions))
+          (macro      (get name 'mv-iref-macro)))
         (if (null indexes)
-            `(aref ,name ,@idxvals)
+            (if macro
+                (values
+                    (replace-unquoted (cdr macro)
+                        (mapcar #'cons (car macro) idxvals))
+                    :macro)
+                `(aref ,name ,@idxvals))
             (let* ((idxtab (mapcar #'cons indexes idxvals))
                    (idxord (reorder idxtab layout #'caar))
                    (idxlst (mapcan #'index-refexpr idxord))
@@ -119,6 +128,9 @@
                 (rexpr mv-p checks) (expand-iref name idxvals :verbose-p *consistency-checks*)
                 (unless mv-p
                     (error "Not a multivalue reference: ~A" expr))
+                (when (eql mv-p :macro)
+                    (return-from simplify-iref-1
+                        (simplify-iref rexpr)))
                 (check-index-alignment rexpr expr rexpr)
                 (when *consistency-checks*
                     ;; Remember bound consistency checks

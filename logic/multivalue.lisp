@@ -43,6 +43,8 @@
            (index-dims (mapcan #'index-dimension index-reordered))
            (decl-dims (mapcar #'(lambda (x) '*) index-dims)))
         `(eval-when (:compile-toplevel :load-toplevel :execute)
+             (when (get ',name 'mv-iref-macro)
+                 (error "~A is already defined by def-multivalue-macro" ',name))
              (defvar ,name nil)
              (declaim (type multivalue ,name))
              (set-prop-nochange ',name 'mv-indexes ',indexes)
@@ -85,6 +87,12 @@
              ,@(mapcar #'(lambda (new-name)
                              `(def-multivalue ,new-name ,@(cddr definition)))
                    aliases))))
+
+(defmacro def-multivalue-macro (name indexes body)
+    `(eval-when (:compile-toplevel :load-toplevel :execute)
+         (when (get ',name 'mv-indexes)
+             (error "~A is already defined by def-multivalue" ',name))
+         (set-prop-nochange ',name 'mv-iref-macro '(,indexes . ,body))))
 
 (defmacro alloc-multivalues (&rest names)
     (let ((commands (mapcar
