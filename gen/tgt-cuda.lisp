@@ -425,7 +425,7 @@
                                 &key with where carrying parallel precompute cuda-flags)
     (destructuring-bind
             (&key (kernel-name (format nil "compute_~A" name))
-                  (block-size 64)
+                  (block-size 128)
                   (max-registers nil)
                   (textures nil))
             cuda-flags
