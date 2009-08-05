@@ -97,17 +97,12 @@
                 :stmt-p t
                 :base-struct-p t)))
 
-    (`(inline-strs ,@code)
-        (dolist (item code)
-            (if (stringp item)
-                (text item)
-                (recurse item))))
-
     ((when base-struct-p
          _)
         (error "Invalid base structure entry: ~A" form)))
 
-(defun compile-expr-cuda (kernel-flags block-dim range-list full_expr)
+(defun compile-expr-cuda (kernel-flags block-dim spill-to-shared
+                          range-list full_expr)
     (let ((types (derive-types full_expr))
           ;; Limit on the dimensions usable for blocks.
           ;; Break on ordered loops or static limit of 2.
@@ -120,7 +115,10 @@
           (args  ())
           (top-found nil)
           (needs-scratch nil)
-          (dims  ()))
+          (dims  ())
+          (temp-handler (if spill-to-shared
+                            #'compile-shared-temps
+                            #'compile-c-inline-temps)))
         (labels ((ref-arg (name expr &optional etype)
                      (let ((sym-type (or etype
                                          (gethash expr types))))
@@ -310,8 +308,9 @@
                                                   (1 "blockIdx.x")
                                                   (2 "blockIdx.y"))
                                               step))))
-                                (if (or *cg-shared-setfs*
-                                        (eql (first (first body)) 'let*))
+                                (if (and spill-to-shared
+                                         (or *cg-shared-setfs*
+                                             (eql (first (first body)) 'let*)))
                                     (progn
                                         (text "__shared__ int ~A;~%"
                                             (symbol-name arg))
@@ -388,7 +387,7 @@
                                 :use-stack
                                 (list grid-compiler
                                       arr-arg-compiler
-                                      #'compile-shared-temps
+                                      temp-handler
                                       #'compile-generic-c
                                       #'compile-generic
                                       #'compile-c-inline-temps)
@@ -401,7 +400,7 @@
                  (code (call-form-compilers
                            (list args-compiler
                                  arr-arg-compiler
-                                 #'compile-shared-temps
+                                 temp-handler
                                  #'compile-generic-c
                                  #'compile-generic)
                            full_expr
@@ -427,7 +426,8 @@
             (&key (kernel-name (format nil "compute_~A" name))
                   (block-size 128)
                   (max-registers nil)
-                  (textures nil))
+                  (textures nil)
+                  (spill-to-shared t))
             cuda-flags
         (let* ((*current-compute* original)
                (*simplify-cache* (make-hash-table))
@@ -463,6 +463,7 @@
                                           (tex-list :textures tex-list)
                                           (max-registers
                                               :max-registers max-registers))
-                                      *loop-cluster-size* range-list
+                                      *loop-cluster-size* spill-to-shared
+                                      range-list
                                       (code-motion (expand-aref tex-expr)
                                           :pull-symbols t))))))))))

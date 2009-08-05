@@ -15,6 +15,12 @@
         (recurse x))
     (`(tmp-ref ,x)
         (recurse x))
+    
+    (`(inline-strs ,@code)
+        (dolist (item code)
+            (if (stringp item)
+                (text item)
+                (recurse item))))
 
     (`(let* ,assns ,@body)
         (unless stmt-p
