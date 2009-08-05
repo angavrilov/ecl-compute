@@ -145,7 +145,7 @@
                     ((eql factor nil)
                         (factor-vars-dumb expr fct-table cur-level var-list nil-list))
                     ((eql factor t)
-                        (let* ((sym   (gensym))
+                        (let* ((sym   (get-new-symbol))
                                (nexpr (factor-vars-dumb expr fct-table cur-level var-list nil-list))
                                (level (min-loop-level expr))
                                (expr-pair (list sym (optimize-tree nexpr))))

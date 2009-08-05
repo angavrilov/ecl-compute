@@ -136,6 +136,7 @@
            (*simplify-cache* (make-hash-table))
            (*range-cache* (make-hash-table))
            (*minlevel-cache* (make-hash-table))
+           (*canonify-cache* (make-canonify-cache))
            (*consistency-checks* (make-hash-table :test #'equal)))
         (multiple-value-bind
                 (loop-expr loop-list range-list)

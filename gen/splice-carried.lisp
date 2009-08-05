@@ -54,7 +54,7 @@
                  types low-table high-table)
              new)
          (wrap-let (expr l-esc)
-             (let* ((sym (gensym))
+             (let* ((sym (get-new-symbol))
                     (clause (list sym expr)))
                  (setf (get sym 'let-clause) clause)
                  (setf (get sym 'lower-escape) l-esc)

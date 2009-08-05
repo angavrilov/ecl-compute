@@ -52,7 +52,7 @@
                                            (- (- bands band-max) 1)))
                            (expr `(+ (* (+ (* ,var-range ,bands) ,band-value) ,by) ,minv)))
                         (values (cons var expr) (list var-range)))
-                    (let* ((band-var    (gensym (symbol-name var)))
+                    (let* ((band-var    (get-new-symbol :stem var))
                            (band-range `(ranging ,band-var
                                             ,band-min ,(- (- bands band-max) 1)
                                             ,band-step ,band-step

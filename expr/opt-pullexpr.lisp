@@ -53,7 +53,7 @@
             ((null (cdr diff))
                 (car diff))
             (t
-                (canonify-expr `(* ,@diff))))))
+                (canonify-tree `(* ,@diff))))))
 
 (defun pull-factors-1 (expr old-expr)
     ;; Requires and preserves canonification
@@ -83,7 +83,7 @@
                 (if (or (null common-prod)
                         (eql common-prod 'none))
                     (if (eql expr old-expr) old-expr
-                        (canonify-expr expr))
+                        (canonify-tree expr))
                     (let ((filtered-args
                               (mapcar
                                   #'(lambda (arg)
@@ -92,25 +92,25 @@
                                                 (pull-factor-list
                                                     lst common-prod))
                                             (`(- (* ,@lst))
-                                                (canonify-expr
+                                                (canonify-tree
                                                     `(- ,(pull-factor-list
                                                             lst common-prod))))
                                             (`(- ,x)
-                                                (canonify-expr
+                                                (canonify-tree
                                                     `(- ,(pull-factor-list
                                                             (list x) common-prod))))
                                             (_
                                                 (pull-factor-list
                                                     (list arg) common-prod))))
                                   args)))
-                        (canonify-expr
-                            `(* ,(canonify-expr
+                        (canonify-tree
+                            `(* ,(canonify-tree
                                      (flatten+ filtered-args))
                                 ,@common-prod))))))
         ((when (not (eql expr old-expr))
             `(* ,@args))
-            (canonify-expr
+            (canonify-tree
                 (flatten* args)))
         (_
             (if (eql expr old-expr) old-expr
-                (canonify-expr expr)))))
+                (canonify-tree expr)))))

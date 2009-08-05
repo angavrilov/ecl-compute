@@ -11,7 +11,7 @@
            (minv    (third range))
            (maxv    (fourth range))
            (delta   (fifth range))
-           (clidx   (gensym (symbol-name index)))
+           (clidx   (get-new-symbol :stem index))
            (new-minv (if align
                          (if (< delta 0) minv
                              `(* (floor ,minv ,align) ,align))
@@ -100,7 +100,7 @@
                (symtbl
                    (mapcar
                        #'(lambda (name)
-                             `(,(gensym (symbol-name name))
+                             `(,(get-new-symbol :stem name)
                                   (tmp-ref
                                       (temporary ',name
                                           (,*loop-cluster-size*) 0)
