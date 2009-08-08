@@ -5,7 +5,7 @@
 (use-std-readtable)
 
 (defun pull-minus-1 (expr old-expr)
-    (match expr
+    (match (canonic-unwrap-all expr)
         (`(- (- ,x)) x)
         (`(/ (- ,x)) `(- (/ ,x)))
         (`(- ,(type number val)) (- val))
@@ -32,8 +32,8 @@
                              args)))
                 (if (> minus-cnt 0)
                     (if (= (rem minus-cnt 2) 0)
-                        `(* ,@args2)
-                        `(- (* ,@args2)))
+                        (collect* args2)
+                        `(- ,(collect* args2)))
                     expr)))
         (`(+ ,@args)
             (let* ((nums     (remove-if-not #'numberp args))
@@ -85,7 +85,9 @@
                               (reduce #'intersection arg-factors)
                               (empty-bag))))
         (if (nonempty? common-prod)
-            `(* ,(flatten+ (mapcar #f(subtract-factor-bag _ common-prod) args))
-                ,@(convert 'list common-prod)))))
+            (collect*
+             (list* (flatten+ (mapcar #f(subtract-factor-bag _ common-prod) args))
+                    (convert 'list common-prod)))
+            (collect+ args))))
     (`(* ,@args)
       (flatten* args))))

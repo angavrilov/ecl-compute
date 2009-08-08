@@ -2,79 +2,106 @@
 
 (in-package fast-compute)
 
+(use-std-readtable)
+
+;;; Select a suitable representation based on the list length
+(defun wrap-assoc-op (lst op zero)
+  (cond ((null lst) zero)
+        ((null (cdr lst)) (car lst))
+        (t (list* op lst))))
+
+;;; Combine values, ignoring nil
+(defun reduce-non-nil (op a b)
+  (cond ((null a) b)
+        ((null b) a)
+        (t (funcall op a b))))
+
+;;; Remove items that are symmetric wrt inv-func
+(defun cancel-items (items inv-func)
+  (let* ((ritems (image #f(canonic (funcall inv-func) _) items))
+         (common (intersection items ritems)))
+    (if (empty? common)
+        items
+        (progn
+          (format t "Cancelled out: ~A~%" common)
+          (bag-difference items common)))))
+
+;;; Collect terms while combining numbers and removing redundant ones.
+(defun collect-terms (reduce-op inv-op tag-op zero exprs &key null-value)
+  (let ((items (empty-bag))
+        (value nil))
+    (dolist (item exprs)
+      (if (numberp item)
+          (setf value (reduce-non-nil reduce-op value item))
+          (adjoinf items (make-canonic item))))
+    (if (and null-value value (= value null-value))
+        (progn
+          (format t "Reduced to ~A: ~A~%" null-value exprs)
+          null-value)
+        (let ((items (cancel-items items inv-op)))
+          (when (and value (not (= value zero)))
+            (adjoinf items value))
+          (wrap-assoc-op (canonic-bag-to-list items)
+                         tag-op zero)))))
+
+;;; Flattening of addition
 (defun toggle-minus (expr)
-    (match expr
-        ((type number num) (- num))
-        (`(- ,x) x)
-        (x `(- ,x))))
+  (match expr
+    ((type number num) (- num))
+    (`(- ,x) x)
+    (x `(- ,x))))
 
-(defun collect-constants-1 (expr reduce-op)
-    (if (null expr)
-        (values nil nil)
-        (multiple-value-bind (expr1 constv)
-            (collect-constants-1 (cdr expr) reduce-op)
-            (if (numberp (car expr))
-                (values expr1
-                    (if constv
-                        (funcall reduce-op constv (car expr))
-                        (car expr)))
-                (values
-                    (cons (car expr) expr1)
-                    constv)))))
+(defun collect+ (args)
+  (collect-terms #'+ #'toggle-minus '+ 0 args))
 
-(defun collect-constants (reduce-op zero tag-op expr)
-    (multiple-value-bind (expr1 constv)
-        (collect-constants-1 expr reduce-op)
-        (let ((oplst
-                    (if (or (null constv) (= constv zero))
-                        expr1
-                        (cons constv expr1))))
-            (if (null oplst)
-                zero
-                (if (null (cdr oplst))
-                    (car oplst)
-                    (cons tag-op oplst))))))
+(defun flatten+-args (args)
+  (mapcan #'(lambda (arg)
+              (match arg
+                (`(+ ,@lst)
+                  (copy-list lst))
+                (`(- ,(type number val))
+                  (list (- val)))
+                (`(- (+ ,@lst))
+                  (mapcar #'toggle-minus lst))
+                (_ (list arg))))
+          args))
 
 (defun flatten+ (args)
-    (collect-constants #'+ 0 '+
-        (mapcan
-            #'(lambda (arg)
-                  (match arg
-                      (`(+ ,@lst)
-                          (copy-list lst))
-                      (`(- ,(type number val))
-                          (list (- val)))
-                      (`(- (+ ,@lst))
-                          (mapcar #'toggle-minus lst))
-                      (_ (list arg))))
-            args)))
+  (collect+ (flatten+-args args)))
 
+;;; Flattening of multiplication
 (defun toggle-div (expr)
-    (match expr
-        (`(/ ,x) x)
-        (x `(/ ,x))))
+  (match expr
+    (1 1)
+    (`(/ ,x) x)
+    (x `(/ ,x))))
+
+(defun collect* (args)
+  (collect-terms #'* #'toggle-div '* 1 args :null-value 0))
+
+(defun flatten*-args (args)
+  (mapcan #'(lambda (arg)
+              (match arg
+                (`(* ,@lst)
+                  (copy-list lst))
+                (`(/ (* ,@lst))
+                  (mapcar #'toggle-div lst))
+                (`(- (* ,x ,@lst))
+                  (cons (toggle-minus x)
+                        (copy-list lst)))
+                (`(- (/ (* ,x ,@lst)))
+                  (mapcar #'toggle-div
+                          (cons (toggle-minus x)
+                                (copy-list lst))))
+                (_ (list arg))))
+          args))
 
 (defun flatten* (args)
-    (collect-constants #'* 1 '*
-        (mapcan
-            #'(lambda (arg)
-                  (match arg
-                      (`(* ,@lst)
-                          (copy-list lst))
-                      (`(/ (* ,@lst))
-                          (mapcar #'toggle-div lst))
-                      (`(- (* ,x ,@lst))
-                          (cons (toggle-minus x)
-                              (copy-list lst)))
-                      (`(- (/ (* ,x ,@lst)))
-                          (mapcar #'toggle-div
-                              (cons (toggle-minus x)
-                                  (copy-list lst))))
-                      (_ (list arg))))
-            args)))
+  (collect* (flatten*-args args)))
 
+;;; Flattening walker
 (defun flatten-exprs-1 (expr old-expr)
-    (match expr
+    (match (canonic-unwrap-all expr)
         (`(+ ,x)     x)
         (`(* ,x)     x)
         (`(- (- ,x)) x)
@@ -88,14 +115,8 @@
         (`(+ ,@args)
             (flatten+ args))
         (`(/ ,x ,@rest)
-            (flatten-exprs-1
-                `(* ,x (/ ,(flatten* rest)))
-                old-expr))
+            (flatten*
+                `(,x (/ ,(flatten* rest)))))
         (`(* ,@args)
-            (let ((rv (flatten* args)))
-                (match rv
-                    ((when (= val 0)
-                        `(* ,(type number val) ,@_))
-                        0)
-                    (_ rv))))
+            (flatten* args))
         (_ nil)))

@@ -153,10 +153,12 @@
 ;;; Helper macros
 
 (defmacro canonic (fn &rest args)
-  `(make-canonic (,fn ,@(mapcar #'(lambda (x) `(canonic-expr-unwrap ,x)) args))))
+  `(make-canonic (,@(if (atom fn) (list fn) fn)
+                    ,@(mapcar #'(lambda (x) `(canonic-expr-unwrap ,x)) args))))
 
 (defmacro canonic-in (fn &rest args)
-  `(,fn ,@(mapcar #'(lambda (x) `(canonic-expr-unwrap ,x)) args)))
+  `(,@(if (atom fn) (list fn) fn)
+      ,@(mapcar #'(lambda (x) `(canonic-expr-unwrap ,x)) args)))
 
 ;;; Canonic simplification
 

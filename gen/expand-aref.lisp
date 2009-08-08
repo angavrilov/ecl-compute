@@ -22,14 +22,15 @@
                     (nreverse (cons nil lst))))))
 
 (defun get-summands (expr)
-    (match expr
+    (match (canonic-expr-unwrap expr)
         (`(+ ,@rest) rest)
         (x (list x))))
 
 (defun sort-summands-by-level (exprs)
-    (let* ((ofs-items
-               (get-summands
-                   (simplify-rec-once #'flatten-exprs-1 `(+ ,@exprs))))
+    (let* ((ofs-items (get-summands
+                       (canonic-simplify-rec-once
+                        #'flatten-exprs-1
+                        (make-canonic `(+ ,@exprs)))))
            (num-ofs-items (remove-if-not #'numberp ofs-items))
            (var-ofs-items (remove-if #'numberp ofs-items))
            (levels   (sort
