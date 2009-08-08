@@ -39,6 +39,13 @@
       (values (canonic-expr-node expr) expr)
       expr))
 
+(defun canonic-expr-force-unwrap (expr)
+  (if (canonic-expr-p expr)
+      (canonic-expr-node expr)
+      (if (atom expr)
+          expr
+          (error "Not a canonic expression: ~S" expr))))
+
 (defun lookup-canonic (expr &key (cache *canonify-cache*))
   (if (canonic-expr-p expr)
       (values expr t)
@@ -144,3 +151,62 @@
                 (subtract-list (cdr list1) list2)))
         (t
             (error "Cannot subtract ~A from ~A" list2 list1))))
+
+;;; Helper macros
+
+(defmacro canonic (fn &rest args)
+  `(make-canonic (,fn ,@(mapcar #'(lambda (x) `(canonic-expr-unwrap ,x)) args))))
+
+(defmacro canonic-in (fn &rest args)
+  `(,fn ,@(mapcar #'(lambda (x) `(canonic-expr-unwrap ,x)) args)))
+
+;;; Canonic simplification
+
+(defun canonic-simplify-rec-once (engine expr)
+  (let ((memo (make-hash-table)))
+    (labels ((recurse (expr)
+               (use-cache (expr memo)
+                 (let* ((rec-res (if (atom expr)
+                                     expr
+                                     (mapcar #'recurse expr)))
+                        (subs-res (funcall engine rec-res expr)))
+                   (make-canonic (or subs-res rec-res))))))
+      (recurse (canonic-expr-force-unwrap expr)))))
+
+(defun canonic-simplify-pre-rec (engine expr)
+  (let ((memo (make-hash-table)))
+    (labels ((recurse (expr)
+               (use-cache (expr memo)
+                 (let* ((subs-res (funcall engine expr))
+                        (new-expr (if subs-res
+                                      (canonic-expr-force-unwrap subs-res)
+                                      expr))
+                        (rec-res (if (atom new-expr)
+                                     new-expr
+                                     (mapcar #'recurse new-expr))))
+                   (make-canonic rec-res)))))
+      (recurse (canonic-expr-force-unwrap expr)))))
+
+(defun canonic-substitute (table expr)
+  (labels ((hash-lookup (expr)
+             (or (gethash expr table)
+                 (gethash (lookup-canonic expr) table)))
+           (map-lookup (expr)
+             (@ table (lookup-canonic expr))))
+    (canonic-simplify-pre-rec (if (hash-table-p table)
+                                  #'hash-lookup
+                                  #'map-lookup)
+                              expr)))
+
+;;; Set helpers
+
+(defun list-to-canonic-bag (items)
+  (convert 'bag (mapcar #'make-canonic items)))
+
+(defun canonic-unwrap-all (lst)
+  (if (listp lst)
+      (mapcar #'canonic-expr-unwrap lst)
+      (canonic-expr-unwrap lst)))
+
+(defun canonic-bag-to-list (bag)
+  (canonic-unwrap-all (convert 'list bag)))

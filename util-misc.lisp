@@ -171,6 +171,7 @@
     (lambda (val delta) (+ (or val 0) delta)))
 
 (defmacro use-cache ((key cache) &body code)
+    "Syntax: (use-cache (key cache) &body code)"
     (let ((cached-val (gensym))
           (found (gensym)))
         `(multiple-value-bind (,cached-val ,found) (gethash ,key ,cache)
