@@ -9,13 +9,13 @@
     (match expr
         ((type atom var)
             nil)
-        (`(ranging ,@_)
+        (`(index ,@_)
             nil)
         (`(declare ,@_)
             nil)
         (`(multivalue-data ,@_)
             nil)
-        (`(loop-range (ranging ,_ ,minv ,maxv ,@_) ,@body)
+        (`(loop-range ,(ranging-spec _ :min minv :max maxv) ,@body)
             (count-subexprs-rec minv cnt-table)
             (count-subexprs-rec maxv cnt-table)
             (dolist (item body)
@@ -63,7 +63,7 @@
                   ;; Factor loop-invariant subexpressions
                   (when (and (consp expr)
                             (not (find (car expr)
-                                     '(ranging safety-check loop-range setf))))
+                                     '(index safety-check loop-range setf))))
                       (let ((level (min-loop-level expr)))
                           (dolist (sub (cdr expr))
                               (unless (eql level (min-loop-level sub))
@@ -78,14 +78,14 @@
                             ('nil t)
                             (`(_grp ,@_) t)
                             ((type symbol var) (not pull-symbols))
-                            (`(ranging ,@_) (ranging-loop-level expr))
+                            ((ranging-spec _ :loop-level level) level)
                             (_ nil))
                       (remhash expr fct-table)))
             fct-table)
         fct-table))
 
 (defun factor-vars-dumb (expr fct-table cur-level var-list nil-list)
-    (if (or (atom expr) (find (car expr) '(ranging)))
+    (if (or (atom expr) (find (car expr) '(index)))
         expr
         (mapcar-save-old
             #'(lambda (x) (factor-vars-rec x fct-table cur-level var-list nil-list))
@@ -96,7 +96,8 @@
         (`(declare ,@_) expr)
         (`(quote ,@_) expr)
         (`(loop-range ,range ,@body)
-            (let* ((level (ranging-loop-level range))
+            (let* ((range-info (ranging-info range))
+                   (level (range-loop-level range-info))
                    (level-gap (if cur-level (- cur-level level 1) 0))
                    (pad-list (loop for i from 1 to level-gap collect nil))
                    (vlist (cons nil (nconc pad-list var-list)))
@@ -104,10 +105,12 @@
                 (unless (or (null cur-level) (< level cur-level))
                     (error "Invalid loop nesting: ~A at level ~A" expr cur-level))
                 ;; Factor the loop range args
-                (setf (third range)
-                    (factor-vars-rec (third range) fct-table cur-level var-list nil-list))
-                (setf (fourth range)
-                    (factor-vars-rec (fourth range) fct-table cur-level var-list nil-list))
+                (setf (range-min range-info)
+                      (factor-vars-rec (range-min range-info)
+                                       fct-table cur-level var-list nil-list))
+                (setf (range-max range-info)
+                      (factor-vars-rec (range-max range-info)
+                                       fct-table cur-level var-list nil-list))
                 ;; Pop the substitutions
                 (dolist (subs (car vlist))
                     (setf (gethash

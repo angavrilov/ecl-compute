@@ -71,7 +71,7 @@
                                   (type symbol _))
                                  (setf (get item 'lower-escape) t)
                                  item)
-                             (`(ranging ,@_)
+                             ((ranging-spec _)
                                  item)
                              ((type list _)
                                  (wrap-let item t))
@@ -80,7 +80,7 @@
                     ((and cur-high
                         (not (gethash expr high-table)))
                          (match item
-                             (`(ranging ,@_)
+                             ((ranging-spec _)
                                  item)
                              ((type list _)
                                  (wrap-let item nil))

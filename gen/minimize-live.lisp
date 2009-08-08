@@ -29,7 +29,7 @@
                      (match expr
                          ((type atom _)
                              expr)
-                         (`(ranging ,@_)
+                         ((ranging-spec _)
                              expr)
                          (`(progn ,@code)
                              (dolist (stmt (butlast code))

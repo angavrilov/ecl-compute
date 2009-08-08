@@ -13,8 +13,8 @@
                     nil)))
         ((type number num)
             nil)
-        (`(ranging ,v ,@_)
-            (eql (ranging-loop-level form) 0))
+        ((ranging-spec _ :loop-level level)
+            (eql level 0))
         (`(ptr+ ,ptr ,ofs)
             (let ((ptr-0 (is-level0-ptr ptr))
                   (ofs-0 (is-level0-ptr ofs)))
@@ -106,8 +106,8 @@
     ((type atom val)
         (text "_mm_set1_ps(~A)" val))
 
-    (`(ranging ,v ,@_)
-        (if (eql (ranging-loop-level form) 0)
+    ((ranging-spec v :loop-level level)
+        (if (eql level 0)
             (text
                 "_mm_add_ps(_mm_set1_ps(~A),_mm_setr_ps(0,1,2,3))"
                 (symbol-name v))

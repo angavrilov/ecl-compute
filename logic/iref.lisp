@@ -72,7 +72,7 @@
 
 (defun check-index-alignment (expr iref-expr aref-expr)
     (match expr
-        (`(ranging ,_ ,minv ,maxv ,step ,@_)
+        ((ranging-spec _ minv maxv step)
             (cons step
                 (or (force-integer
                         (simplify-index `(rem ,minv ,step)))

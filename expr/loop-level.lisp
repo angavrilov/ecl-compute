@@ -31,8 +31,8 @@
         (match expr
             ((type atom _)
                 nil)
-            (`(ranging ,@_)
-                (list (ranging-loop-level expr)))
+            ((ranging-spec _ :loop-level level)
+                (list level))
             (`(temporary ,@_)
                 nil)
             (`(tmp-ref ,tmp ,@args)

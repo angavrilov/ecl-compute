@@ -28,10 +28,10 @@
                    (band-max  (if (< skip-high (abs band-step)) skip-high 0))
                    (line-min  (if (>= skip-low bands) (/ skip-low bands) 0))
                    (line-max  (if (>= skip-high bands) (/ skip-high bands) 0))
-                   (var-range `(ranging ,var
-                                   ,line-min
-                                   ,(simplify-index `(- (- ,dimension ,line-max) 1))
-                                   ,line-step ,(get-ord-step step) nil)))
+                   (var-range (ranging-spec var
+                                   line-min
+                                   (simplify-index `(- (- ,dimension ,line-max) 1))
+                                   line-step (get-ord-step step) nil)))
                 (unless (and (integerp band-step) (integerp line-step)
                              (= (mod bands band-step) 0))
                     (error "~A: step ~A does not match band count ~A"
@@ -53,9 +53,9 @@
                            (expr `(+ (* (+ (* ,var-range ,bands) ,band-value) ,by) ,minv)))
                         (values (cons var expr) (list var-range)))
                     (let* ((band-var    (get-new-symbol :stem var))
-                           (band-range `(ranging ,band-var
-                                            ,band-min ,(- (- bands band-max) 1)
-                                            ,band-step ,band-step
+                           (band-range (ranging-spec band-var
+                                            band-min (- (- bands band-max) 1)
+                                            band-step band-step
                                             nil))
                            (expr `(+ (* (+ (* ,var-range ,bands) ,band-range) ,by) ,minv)))
                         (setf (get band-var 'band-master) var)
@@ -63,10 +63,10 @@
             ;; Single band
             (let* ((dimension (car (index-dimension item)))
                    (num-step  (get-num-step step))
-                   (var-range `(ranging ,var
-                                   ,skip-low
-                                   ,(simplify-index `(- (- ,dimension ,skip-high) 1))
-                                   ,num-step ,(get-ord-step step) nil))
+                   (var-range (ranging-spec var
+                                   skip-low
+                                   (simplify-index `(- (- ,dimension ,skip-high) 1))
+                                   num-step (get-ord-step step) nil))
                    (expr `(+ (* ,var-range ,by) ,minv)))
                 (values (cons var expr) (list var-range))))))
 
@@ -82,7 +82,7 @@
 
 (defun correct-loop-levels (range-list min-layer)
     (dolist (range (reverse range-list))
-        (setf (seventh range) min-layer)
+        (setf (range-loop-level (ranging-info range)) min-layer)
         (incf min-layer))
     (values range-list min-layer))
 

@@ -53,8 +53,8 @@
     ((type number nv)
         (text "~S" nv))
 
-    (`(ranging ,v ,@_)
-        (if (ranging-loop-level form)
+    ((ranging-spec v :loop-level level)
+        (if level
             (text (symbol-name v))
             (recurse v)))
 

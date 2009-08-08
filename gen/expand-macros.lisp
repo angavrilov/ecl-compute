@@ -19,7 +19,7 @@
             `(temporary ,name
                  ,(mapcar #'expand-macros dims)
                  ,@rest))
-        ((cons (or 'ranging 'aref 'iref '_grp 'tmp-ref 'quote
+        ((cons (or 'index 'aref 'iref '_grp 'tmp-ref 'quote
                    '+ '- '* '/ 'mod 'rem 'floor 'ceiling 'truncate
                    'and 'or 'if 'progn
                    'sin 'cos 'exp 'expt 'float-sign

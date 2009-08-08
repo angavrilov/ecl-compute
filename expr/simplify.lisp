@@ -3,6 +3,7 @@
 (in-package fast-compute)
 
 (defparameter *simplify-cache* (make-hash-table))
+(defparameter *simplify-ranges* nil)
 
 (defun simplify-index-1 (expr &optional (old-expr expr))
     (match expr
@@ -11,9 +12,28 @@
         (`(1- ,x) `(- ,x 1))
         ;; Expand trivial ranges
         ((or
-             `(ranging ,(type number val) ,@_)
-             `(ranging ,_ ,(type number val) ,val ,@_))
+             (ranging-spec (type number val))
+             (ranging-spec _ :min (type number val) :max val))
             val)
+        ;; Recurse into ranges if requested
+        ((when *simplify-ranges*
+           `(index ,var ,info))
+            (let* ((info2 (copy-range info))
+                   (minv (range-min info))
+                   (maxv (range-max info))
+                   (delta (range-delta info))
+                   (minv2 (simplify-index minv))
+                   (maxv2 (simplify-index maxv))
+                   (delta2 (simplify-index delta)))
+              (if (and (equal minv minv2)
+                       (equal maxv maxv2)
+                       (equal delta delta2))
+                  nil
+                  (progn
+                    (setf (range-min info2) minv2
+                          (range-max info2) maxv2
+                          (range-delta info2) delta2)
+                    `(index ,var ,info2)))))
         ;; Collapse arithmetical no-ops
         ((or `(/ ,x 1) `(* ,x 1)
              `(+ ,x 0) `(- ,x 0) `(+ ,x)

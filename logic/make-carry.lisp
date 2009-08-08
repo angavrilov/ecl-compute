@@ -10,15 +10,17 @@
            (iranges   (nthcdr (1+ pos) range-list))
            (act-ranges (mapcar #'compute-range
                            (remove-if #'(lambda (rg)
+                                            ;; Clusters are accounted for by their main range
                                             (get (second rg) 'is-cluster))
                                iranges)))
-           (idims     (mapcar #'(lambda (rg)
+           (act-info  (mapcar #'ranging-info act-ranges))
+           (idims     (mapcar #'(lambda (info)
                                     (simplify-index
-                                        `(+ (- ,(fourth rg) ,(third rg)) 1)))
-                          act-ranges))
-           (irefs     (mapcar #'(lambda (rg)
+                                        `(+ (- ,(range-max info) ,(range-min info)) 1)))
+                          act-info))
+           (irefs     (mapcar #'(lambda (rg info)
                                     (simplify-index
-                                        `(- ,rg ,(third rg))))
+                                        `(- ,rg ,(range-min info))))
                           act-ranges))
            ;; Modification points
            (out-pos    (position index range-list :key #'range-band-master))

@@ -91,7 +91,7 @@
     (match expr
         ((type number num)
             num)
-        (`(,(or 'arr-ptr 'temporary 'arr-dim 'ranging) ,@_)
+        (`(,(or 'arr-ptr 'temporary 'arr-dim 'index) ,@_)
             0)
         (`(- ,a ,@rest)
             (- (get-inner-delta a)
@@ -115,10 +115,10 @@
     (match expr
         ((type number num)
             0)
-        ((when (eql (ranging-loop-level expr) 0)
-             `(ranging ,@_))
+        ((when (eql level 0)
+             (ranging-spec _ :loop-level level))
             1)
-        (`(,(or 'arr-ptr 'temporary 'arr-dim 'ranging) ,@_)
+        (`(,(or 'arr-ptr 'temporary 'arr-dim 'index) ,@_)
             0)
         (`(- ,a ,@rest)
             (apply-unless-nil #'-

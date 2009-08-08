@@ -2,9 +2,45 @@
 
 (in-package fast-compute)
 
-(defmacro ranging (expr min max delta &optional ordered-p loop-level &rest tail)
-    (declare (ignore min max delta ordered-p loop-level tail))
-    expr)
+(defparameter *print-ranges* nil)
+
+(defstruct (range
+             (:print-function print-range))
+  min max delta ordered-p loop-level)
+
+(defun print-range (rg stream level)
+  (if *print-ranges*
+      (format stream "#<~A...~A by ~A~A at ~A>"
+              (range-min rg) (range-max rg) (range-delta rg)
+              (if (range-ordered-p rg) " ordered" "")
+              (range-loop-level rg))
+      (format stream "#<RG>")))
+
+(defmacro index (expr rg)
+  (declare (ignore rg))
+  expr)
+
+(defmacro ranging-spec (expr &rest args)
+  (if (or (null args) (keywordp (first args)))
+      `(list 'index ,expr (make-range ,@args))
+      (destructuring-bind
+            (min max delta &optional ordered-p loop-level) args
+        `(list 'index ,expr
+               (make-range :min ,min :max ,max :delta ,delta
+                           :ordered-p ,ordered-p :loop-level ,loop-level)))))
+
+(cl-match:defpattern ranging-spec (expr &rest args)
+  (let* ((fix-args (if (or (null args) (keywordp (first args)))
+                       args
+                       (destructuring-bind
+                             (min max delta &optional
+                                  (ordered-p '_) (loop-level '_)) args
+                         `(:min ,min :max ,max :delta ,delta
+                                :ordered-p ,ordered-p :loop-level ,loop-level))))
+         (arg-patterns (gmap (:list :filterp #'(lambda (x) (not (eql (second x) '_))))
+                             #'list (:plist fix-args))))
+    `(list 'index ,expr
+           (struct range- ,@arg-patterns))))
 
 (defmacro arr-dim (arr idx rank)
     `(array-dimension ,arr ,idx))
@@ -25,10 +61,7 @@
         `(aref ,temp ,@dims)))
 
 (defmacro loop-range (rangespec &body code)
-    (destructuring-bind
-        (rg var minv maxv stepv &rest x) rangespec
-        (unless (eql rg 'ranging)
-            (error "Invalid range spec: ~A" rangespec))
+    (letmatch (ranging-spec var minv maxv stepv) rangespec
         (if (> stepv 0)
             `(do ((,var ,minv (+ ,var ,stepv)))
                  ((> ,var ,maxv) nil)
@@ -41,25 +74,36 @@
 
 
 
+(defun ranging-var (rspec)
+  (ifmatch `(index ,var ,_) rspec
+      var
+    (error "Not a ranging spec: ~A" rspec)))
+
+(defun ranging-info (rspec)
+  (ifmatch `(index ,_ ,info) rspec
+      info
+    (error "Not a ranging spec: ~A" rspec)))
+
 (defun ranging-order-flag (rspec)
-    (unless (eql (car rspec) 'ranging)
-        (error "Not a ranging spec: ~A" rspec))
-    (nth 5 rspec))
+  (ifmatch (ranging-spec _ :ordered-p flag) rspec
+      flag
+    (error "Not a ranging spec: ~A" rspec)))
 
 (defun ranging-loop-level (rspec)
-    (unless (eql (car rspec) 'ranging)
-        (error "Not a ranging spec: ~A" rspec))
-    (nth 6 rspec))
+  (ifmatch (ranging-spec _ :loop-level level) rspec
+      level
+    (error "Not a ranging spec: ~A" rspec)))
 
 (defun remove-ranges (expr)
     (simplify-rec-once
         #'(lambda (expr old)
-              (if (and (consp expr)
-                       (eql (car expr) 'ranging))
-                  (second expr)
-                  nil))
+              (match expr
+                (`(index ,var ,_) var)))
         expr))
 
+(defun copy-ranging (expr)
+  (letmatch `(index ,var ,info) expr
+    `(index ,var ,(copy-range info))))
 
 (defun get-full-expr (expr)
     (cond
@@ -82,7 +126,7 @@
     (or (numberp expr)
         (and (consp expr)
              (find (car expr)
-                 '(+ - * / 1+ 1- floor ceiling mod rem truncate ranging)))))
+                 '(+ - * / 1+ 1- floor ceiling mod rem truncate index)))))
 
 
 (defun apply-skipping-structure (fun expr args)

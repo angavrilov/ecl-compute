@@ -82,8 +82,6 @@
                      item)))
              (canonify (expr)
                (match expr
-                 (`(ranging ,@_)
-                   expr)
                  (`(,(as op (or '+ '*)) ,@args)
                    (list* op
                           (mapcar #'canonic-expr-unwrap

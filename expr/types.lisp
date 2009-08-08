@@ -23,7 +23,7 @@
                 (match expr
                     ((type atom _) nil)
                     (`(multivalue-data ,@_) nil)
-                    (`(ranging ,idx ,minv ,maxv ,@_)
+                    ((ranging-spec idx minv maxv _)
                         (mark-list (list idx minv maxv) 'integer))
                     (`(tmp-ref ,name)
                         (mark-list (list name) 'float))
@@ -89,7 +89,7 @@
                     ((type integer _) 'integer)
                     ((type symbol s) upper-type)
                     (`(multivalue-data ,@_) 'array)
-                    (`(ranging ,ix ,minv ,maxv ,@_)
+                    ((ranging-spec ix minv maxv _)
                         (get-bottom-type ix)
                         (get-bottom-type minv)
                         (get-bottom-type maxv)

@@ -9,7 +9,7 @@
                 (match expr
                     (`(,(or 'let 'let* 'symbol-macrolet) ,@_)
                         nil)
-                    (`(ranging ,@_)
+                    (`(index ,@_)
                         old-expr)
                     (`(multivalue-data ,@_)
                         `(the (array single-float) ,old-expr))

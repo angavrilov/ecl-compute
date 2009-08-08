@@ -75,7 +75,6 @@
 
 (defun flatten-exprs-1 (expr old-expr)
     (match expr
-        (`(ranging ,@_) old-expr)
         (`(+ ,x)     x)
         (`(* ,x)     x)
         (`(- (- ,x)) x)

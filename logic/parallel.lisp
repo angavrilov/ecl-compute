@@ -5,19 +5,17 @@
 (defparameter *use-thread-dispatch* nil)
 
 (defun wrap-parallel (range code &key (gen-func #'identity) (wrap-func #'identity))
-    (destructuring-bind
-        (rs arg iminv imaxv stepv &rest tail) range
-        (unless (eql rs 'ranging)
-            (error "Invalid range: ~A" range))
+    (letmatch (ranging-spec arg iminv imaxv stepv) range
         (let ((min-sym (gensym))
               (max-sym (gensym))
               (rng-sym (gensym))
               (idx-sym (gensym))
               (cnt-sym (gensym))
+              (range-info (ranging-info range))
               (minv (get-full-expr iminv))
               (maxv (get-full-expr imaxv)))
-            (setf (third range) min-sym)
-            (setf (fourth range) max-sym)
+            (setf (range-min range-info) min-sym)
+            (setf (range-max range-info) max-sym)
             (setf (get min-sym 'full-expr) minv)
             (setf (get max-sym 'full-expr) maxv)
             (labels

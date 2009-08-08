@@ -8,9 +8,10 @@
 (defun cluster-loop (range-list range size &key align)
     (let* ((pos     (position range range-list))
            (index   (second range))
-           (minv    (third range))
-           (maxv    (fourth range))
-           (delta   (fifth range))
+           (range-info (ranging-info range))
+           (minv    (range-min range-info))
+           (maxv    (range-max range-info))
+           (delta   (range-delta range-info))
            (clidx   (get-new-symbol :stem index))
            (new-minv (if align
                          (if (< delta 0) minv
@@ -20,14 +21,14 @@
                          (if (> delta 0) maxv
                              `(- (* (ceiling (+ ,maxv 1) ,align) ,align) 1))
                          maxv))
-           (nrange `(ranging ,clidx
-                        ,(simplify-index new-minv)
-                        ,(simplify-index new-maxv)
-                        ,(* delta size)
-                        ,(ranging-order-flag range) nil)))
+           (nrange (ranging-spec clidx
+                        (simplify-index new-minv)
+                        (simplify-index new-maxv)
+                        (* delta size)
+                        (ranging-order-flag range) nil)))
         (setf (get clidx 'band-master) index)
         (setf (get clidx 'is-cluster) t)
-        (setf (third range)
+        (setf (range-min range-info)
             (simplify-index
                 (if (> delta 0)
                     (if align
@@ -37,7 +38,7 @@
                          ,(optimize-tree
                               `(- ,nrange ,(* (abs delta)
                                               (1- size))))))))
-        (setf (fourth range)
+        (setf (range-max range-info)
             (simplify-index
                 (if (< delta 0)
                     (if align
@@ -78,10 +79,10 @@
             nil)))
 
 (defun get-range-cluster-base (range)
+  (letmatch (ranging-spec _ :min minv :max maxv) range
     (multiple-value-bind
-            (dim base)
-            (get-range-value (third range) (fourth range))
-        (or base (third range))))
+          (dim base) (get-range-value minv maxv)
+      (or base minv))))
 
 (defun make-cluster-refs (range-list vars replace-tbl with
                              &key force-cluster)
@@ -95,7 +96,8 @@
                    (cluster-loop range-list index *loop-cluster-size*
                        :align *align-cluster*))
                ;; Build a let map fragment
-               (cache-index (copy-list index))
+               (cache-index (copy-ranging index))
+               (cache-index-info (ranging-info cache-index))
                (cluster-base (get-range-cluster-base index))
                (symtbl
                    (mapcar
@@ -127,9 +129,10 @@
                             reftbl
                             (remove-if #'(lambda (x) (find x vars))
                                 with :key #'first))))
-            (setf (fifth cache-index) (abs (fifth cache-index))) ; delta
-            (setf (sixth cache-index) nil) ;order
-            (setf (seventh cache-index) 0) ;level
+            (setf (range-delta cache-index-info)
+                  (abs (range-delta cache-index-info)))
+            (setf (range-ordered-p cache-index-info) nil)
+            (setf (range-loop-level cache-index-info) 0)
             (values range-list
                 (if symtbl in-with with)
                 (if symtbl calc-loop)

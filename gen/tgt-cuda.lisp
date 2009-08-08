@@ -180,7 +180,8 @@
                         ((type symbol sym)
                             (text (temp-symbol-name sym)))
                         (`(loop-range
-                              (ranging ,arg ,min ,max ,delta ,ordered 0 ,@_)
+                              ,(ranging-spec arg :min min :max max :delta delta
+                                             :ordered-p ordered :loop-level 0)
                               ,@body)
                             (multiple-value-bind
                                     (rgv base minv maxv)
@@ -261,7 +262,8 @@
                                 (text "}}~%")))
                         ((when (> level 0)
                             `(loop-range
-                                 (ranging ,arg ,min ,max ,delta ,_ ,level ,@_)
+                                 ,(ranging-spec arg :min min :max max :delta delta
+                                                :loop-level level)
                                  ,@body))
                              (text "{~%int ~A;~%for(~A = " arg arg)
                              (recurse (if (> delta 0) min max))
@@ -293,7 +295,8 @@
                         ((when (and (< (length dims) max-dims)
                                     (> level 0))
                             `(loop-range
-                                 (ranging ,arg ,min ,max ,step nil ,level ,@_)
+                                 ,(ranging-spec arg :min min :max max :delta step
+                                                :ordered-p nil :loop-level level)
                                   ,@body))
                             (push `(1+ (floor (- ,(get-full-expr max)
                                                   ,(get-full-expr min))

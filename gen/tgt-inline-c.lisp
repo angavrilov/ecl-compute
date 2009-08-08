@@ -52,7 +52,7 @@
                                  (text "VECTORP(~A)?(~A)->vector.self.sf:(~A)->array.self.sf"
                                      arr-str arr-str arr-str)))
                          (`(loop-range
-                              (ranging ,arg ,min ,max 1 nil 0 ,@_)
+                              ,(ranging-spec arg :min min :max max :delta 1 :ordered-p nil :loop-level 0)
                               ,@body)
                              (text "{~%int ~A = " arg)
                              (recurse min)
@@ -76,10 +76,11 @@
                                  (recurse cmd :stmt-p t))
                              (text "}}~%"))
                          (`(loop-range
-                              (ranging ,arg ,min ,max ,delta ,@_)
+                              ,(ranging-spec arg :min min :max max :delta delta :loop-level level)
                               ,@body)
-                             (when (eql (ranging-loop-level (second form)) 0)
-                                 (format t "SSE inapplicable: ~A~%" (second form)))
+                             (when (eql level 0)
+                               (let ((*print-ranges* t))
+                                 (format t "SSE inapplicable: ~A~%" (second form))))
                              (text "{~%int ~A;~%for(~A = " arg arg)
                              (recurse (if (> delta 0) min max))
                              (text "; ~A ~A " arg (if (> delta 0) "<=" ">="))

@@ -6,7 +6,6 @@
 
 (defun pull-minus-1 (expr old-expr)
     (match expr
-        (`(ranging ,@_) old-expr)
         (`(- (- ,x)) x)
         (`(/ (- ,x)) `(- (/ ,x)))
         (`(- ,(type number val)) (- val))
@@ -80,7 +79,6 @@
 
 (defun pull-factors-1 (expr old-expr)
   (match (canonic-unwrap-all expr)
-    (`(ranging ,@_) old-expr)
     (`(+ ,@args)
       (let* ((arg-factors (mapcar #'get-factor-bag args))
              (common-prod (if arg-factors
