@@ -84,6 +84,7 @@
     (dolist (range (reverse range-list))
         (setf (range-loop-level (ranging-info range)) min-layer)
         (incf min-layer))
+    (clrhash *minlevel-cache*) ; Invalidate the cache
     (values range-list min-layer))
 
 (defun build-loop-list (name indexes idxlist &key min-layer)

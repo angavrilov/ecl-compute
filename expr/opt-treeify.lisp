@@ -51,8 +51,10 @@
         (_ nil)))
 
 (defun optimize-tree (expr)
-  (let* ((canonic (make-canonic expr))
-         (flat (canonic-simplify-rec-once #'flatten-exprs-1 canonic))
-         (no- (canonic-simplify-rec-once #'pull-minus-1 flat))
-         (fact (canonic-simplify-rec-once #'pull-factors-1 no-)))
-    (simplify-rec-once #'treeify-1 (canonic-expr-unwrap fact))))
+  (pipeline (make-canonic expr)
+    (canonic-simplify-rec-once #'flatten-exprs-1)
+    (canonic-simplify-rec-once #'pull-minus-1)
+    (canonic-simplify-rec-once #'pull-factors-1)
+    (canonic-simplify-rec-once #'split-by-level-1)
+    canonic-expr-unwrap
+    (simplify-rec-once #'treeify-1)))

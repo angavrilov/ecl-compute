@@ -6,6 +6,7 @@
     (let* ((inner-index
                (second (car (last range-list))))
            (cluster-level
+             (convert 'set
                (mapcar #'ranging-loop-level
                    (remove-if-not
                        #'(lambda (rg)
@@ -13,7 +14,7 @@
                                  (eql inner-index
                                      (get (second rg) 'band-master))
                                  (get (second rg) 'is-cluster)))
-                       range-list)))
+                       range-list))))
            (local-temps
               (remove-if-not
                   #'(lambda (ref-entry)
@@ -30,11 +31,11 @@
                                     #'(lambda (x)
                                           (and
                                               (= (length x) 1)
-                                              (equal
+                                              (equal?
                                                   (set-difference
                                                       (get-loop-levels (first x))
                                                       cluster-level)
-                                                  '(0))))
+                                                  (set 0))))
                                     (append
                                         (third ref-entry) (second ref-entry))))))
                   ref-list))

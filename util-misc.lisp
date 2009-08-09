@@ -206,3 +206,40 @@
     (if (some #'null args)
         nil
         (apply fun args)))
+
+(defmacro pipeline (value &body steps)
+  "Args: (value &body steps)
+Pipes the value through function calls described by steps.
+Each of the steps can be a symbol, or a list. If the list
+contains &rest, it specifies the position where the result
+of the previous step is passed. Otherwise, it is added as
+the last parameter."
+  (labels ((step-name (spec)
+             (match spec
+               (`(,(or 'function 'funcall) ,name ,@_)
+                 (step-name name))
+               (`(,_ (function ,name) ,@_)
+                 (step-name name))
+               (`(,head ,@_)
+                 (step-name head))
+               (_
+                 (format nil "P-~A-" spec)))))
+    (let* ((init-val (gensym "P-INIT-"))
+           (cur-val init-val)
+           (step-code
+            (mapcar #'(lambda (step)
+                            (let* ((new-val (gensym (step-name step)))
+                                   (step-lst (if (consp step)
+                                                 (copy-list step)
+                                                 (list step)))
+                                   (splice-pos (member '&rest step-lst)))
+                              (if splice-pos
+                                  (setf (car splice-pos) cur-val)
+                                  (setf step-lst
+                                        (nconc step-lst (list cur-val))))
+                              (setf cur-val new-val)
+                              (list new-val step-lst)))
+                        steps)))
+      `(let* ((,init-val ,value)
+              ,@step-code)
+         ,cur-val))))
