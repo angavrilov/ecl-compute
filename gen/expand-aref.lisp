@@ -28,9 +28,7 @@
 
 (defun sort-summands-by-level (exprs)
     (let* ((ofs-items (get-summands
-                       (canonic-simplify-rec-once
-                        #'flatten-exprs-1
-                        (make-canonic `(+ ,@exprs)))))
+                       (flatten-exprs (make-canonic `(+ ,@exprs)))))
            (num-ofs-items (remove-if-not #'numberp ofs-items))
            (var-ofs-items (remove-if #'numberp ofs-items))
            (levels   (sort
@@ -39,11 +37,15 @@
                          #'level>))
            (ofs-groups (mapcar
                            #'(lambda (lvl)
-                                 (simplify-rec-once #'treeify-1
+                                 (treeify
                                      `(+ ,@(remove lvl var-ofs-items
                                                :test-not #'eql :key #'min-loop-level))))
                             levels)))
         (nconc ofs-groups num-ofs-items)))
+
+(def-rewrite-pass eval-temporary-dims ()
+  (`(arr-ptr (temporary ,@_))                (second expr))
+  (`(arr-dim (temporary ,_ ,dims ,@_) ,i ,_) (nth i dims)))
 
 (defun expand-aref-1 (expr old-expr)
     (match expr
@@ -60,14 +62,7 @@
             nil)
         (`(tmp-ref ,name ,@idxvals)
             (let ((rexpr (expand-aref-1 `(aref ,name ,@idxvals) old-expr)))
-                (simplify-index
-                    (simplify-rec-once
-                        #'(lambda (expr old-expr)
-                              (match expr
-                                  (`(arr-ptr (temporary ,@_)) (second expr))
-                                  (`(arr-dim (temporary ,_ ,dims ,@_) ,i ,_)
-                                      (nth i dims))))
-                        rexpr))))
+                (simplify-index (eval-temporary-dims rexpr))))
         (_ nil)))
 
 (defun expand-aref (expr)

@@ -33,10 +33,11 @@
     (load-compile "thread-core")
 
     (dolist (module-name
-                '("expr/form-defs.lisp"
+                '("expr/canonify.lisp"
+                  "expr/rewrite.lisp"
+                  "expr/form-defs.lisp"
                   "expr/simplify.lisp"
                   "expr/ranges.lisp"
-                  "expr/canonify.lisp"
                   "expr/loop-level.lisp"
                   "expr/opt-flatten.lisp"
                   "expr/opt-pullexpr.lisp"

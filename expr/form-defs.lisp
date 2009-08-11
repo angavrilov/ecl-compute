@@ -94,12 +94,8 @@
       level
     (error "Not a ranging spec: ~A" rspec)))
 
-(defun remove-ranges (expr)
-    (simplify-rec-once
-        #'(lambda (expr old)
-              (match expr
-                (`(index ,var ,_) var)))
-        expr))
+(def-rewrite-pass remove-ranges ()
+  (`(index ,var ,_) var))
 
 (defun copy-ranging (expr)
   (letmatch `(index ,var ,info) expr

@@ -160,43 +160,36 @@
   `(,@(if (atom fn) (list fn) fn)
       ,@(mapcar #'(lambda (x) `(canonic-expr-unwrap ,x)) args)))
 
-;;; Canonic simplification
+;;; Canonic tree rewriting
 
-(defun canonic-simplify-rec-once (engine expr)
-  (let ((memo (make-hash-table)))
+(defun canonic-rewrite-pre-rec (engine expr &key memoize-hash)
+  (let ((memo (or memoize-hash (make-hash-table))))
     (labels ((recurse (expr)
                (use-cache (expr memo)
-                 (let* ((rec-res (if (atom expr)
-                                     expr
-                                     (mapcar #'recurse expr)))
-                        (subs-res (funcall engine rec-res expr)))
-                   (make-canonic (or subs-res rec-res))))))
+                 (multiple-value-bind (subs-res final) (funcall engine expr)
+                   (if final ; Cut off recursion
+                       (or subs-res (lookup-canonic expr))
+                       (let* ((new-expr (if subs-res
+                                            (canonic-expr-force-unwrap subs-res)
+                                            expr))
+                              (rec-res (if (atom new-expr)
+                                           new-expr
+                                           (mapcar #'recurse new-expr))))
+                         (make-canonic rec-res)))))))
       (recurse (canonic-expr-force-unwrap expr)))))
 
-(defun canonic-simplify-pre-rec (engine expr)
-  (let ((memo (make-hash-table)))
-    (labels ((recurse (expr)
-               (use-cache (expr memo)
-                 (let* ((subs-res (funcall engine expr))
-                        (new-expr (if subs-res
-                                      (canonic-expr-force-unwrap subs-res)
-                                      expr))
-                        (rec-res (if (atom new-expr)
-                                     new-expr
-                                     (mapcar #'recurse new-expr))))
-                   (make-canonic rec-res)))))
-      (recurse (canonic-expr-force-unwrap expr)))))
-
-(defun canonic-substitute (table expr)
+(defun canonic-substitute (table expr &key (replace-once t))
   (labels ((hash-lookup (expr)
-             (or (gethash expr table)
-                 (gethash (lookup-canonic expr) table)))
+             (let ((item (or (gethash expr table)
+                             (gethash (lookup-canonic expr) table))))
+               (values item (and item replace-once))))
            (map-lookup (expr)
-             (@ table (lookup-canonic expr))))
-    (canonic-simplify-pre-rec (if (hash-table-p table)
-                                  #'hash-lookup
-                                  #'map-lookup)
-                              expr)))
+             (let ((item (@ table (lookup-canonic expr))))
+               (values item (and item replace-once)))))
+    (canonic-rewrite-pre-rec (if (hash-table-p table)
+                                 #'hash-lookup
+                                 #'map-lookup)
+                             expr)))
 
 ;;; Set helpers
 
