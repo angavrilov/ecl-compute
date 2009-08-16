@@ -2,6 +2,8 @@
 
 (in-package fast-compute)
 
+;;; Range annotation
+
 (defparameter *print-ranges* nil)
 
 (defstruct (range
@@ -15,6 +17,7 @@
               (if (range-ordered-p rg) " ordered" "")
               (range-loop-level rg))
       (format stream "#<RG>")))
+
 
 (defmacro index (expr rg)
   (declare (ignore rg))
@@ -42,10 +45,16 @@
     `(list 'index ,expr
            (struct range- ,@arg-patterns))))
 
+;;; Array dimension macro
+
 (defmacro arr-dim (arr idx rank)
     `(array-dimension ,arr ,idx))
 
+;;; Expression flattening barrier
+
 (defmacro _grp (arg) arg)
+
+;;; Temporary buffer
 
 (defmacro temporary (name dims level &optional mode)
     (if (null dims)
@@ -60,6 +69,8 @@
         temp
         `(aref ,temp ,@dims)))
 
+;;; Annotated range loop
+
 (defmacro loop-range (rangespec &body code)
     (letmatch (ranging-spec var minv maxv stepv) rangespec
         (if (> stepv 0)
@@ -72,7 +83,7 @@
                  (declare (type fixnum ,var))
                  ,@code))))
 
-
+;;; Range annotation helpers
 
 (defun ranging-var (rspec)
   (ifmatch `(index ,var ,_) rspec
@@ -101,6 +112,8 @@
   (letmatch `(index ,var ,info) expr
     `(index ,var ,(copy-range info))))
 
+;;; Factored expression helpers
+
 (defun get-full-expr (expr)
     (cond
         ((symbolp expr)
@@ -117,6 +130,7 @@
 (defun recurse-factored (fun expr &rest args)
     (apply fun (unwrap-factored expr) args))
 
+;;; Fixed index expression predicate
 
 (defun index-expr-p (expr)
     (or (numberp expr)
@@ -124,6 +138,35 @@
              (find (car expr)
                  '(+ - * / 1+ 1- floor ceiling mod rem truncate index)))))
 
+;;; Tree walker for skipping structure
+
+(defun map-skipping-structure (func expr)
+  (match expr
+    (`(,(as op (or 'let* 'let 'symbol-macrolet)) ,assns ,@code)
+      (list*-save-old expr
+                      op
+                      (mapcar-save-old #'(lambda (assn)
+                                           (list-save-old assn
+                                                          (first assn)
+                                                          (funcall func (second assn))))
+                                       assns)
+                      (mapcar-save-old func code)))
+    (`(safety-check ,checks ,@body)
+      (list*-save-old expr
+                      'safety-check
+                      (mapcar-save-old #'(lambda (check)
+                                           (cons-save-old check
+                                                          (funcall func (car check))
+                                                          (cdr check)))
+                                       checks)
+                      (mapcar-save-old func body)))
+    (`(temporary ,name ,dims ,@tail)
+      (list*-save-old expr
+                      'temporary name
+                      (mapcar-save-old func dims)
+                      tail))
+    (_
+     (mapcar-save-old func expr))))
 
 (defun apply-skipping-structure (fun expr args)
     (match expr
@@ -145,6 +188,7 @@
 ;            (format t "Unknown structure statement: ~A" expr)
             (apply fun expr args))))
 
+;;; Misc
 
 (defun range-band-master (range)
     (let ((idx (second range)))

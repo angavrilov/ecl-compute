@@ -58,21 +58,6 @@
                      (setf (gethash can-tree memo) can-res)))))
       (recurse (canonic-expr-force-unwrap expr)))))
 
-;;; Tree walker for skipping structure
-
-(defun map-skipping-structure (func expr)
-  (match expr
-    (`(,(as op (or 'let* 'let)) ,assns ,@code)
-      (let ((assns2 (mapcar-save-old #'(lambda (assn)
-                                         (list-save-old assn
-                                                        (first assn)
-                                                        (funcall func (second assn))))
-                                     assns)))
-        (list*-save-old expr
-                        op assns2 (mapcar-save-old func code)))
-    (_
-     (mapcar-save-old func expr)))))
-
 ;;; Rewrite pass declaration
 
 (defun rewrite-pass-step-name (pass-name)
@@ -86,8 +71,19 @@ Applies the rewrite pass rules to the expression once."
     `(let ((,ev ,expr))
        (or (,(rewrite-pass-step-name pass-name) ,ev ,ev ,@args) ,ev))))
 
+(defun get-normal-params (params)
+  (match params
+    (nil nil)
+    ((list* '&aux _) nil)
+    ((list* (or '&key '&optional '&body '&rest) _)
+     (error "Cannot use optional parameters in def-rewrite-pass: ~A" params))
+    ((list* (type symbol a) b)
+     (cons a (get-normal-params b)))
+    (_
+     (error "Invalid parameter notation in def-rewrite-pass: ~A" params))))
+
 (defmacro def-rewrite-pass (name params &body patterns)
-  "Syntax: (def-rewrite-pass name (flags) &body patterns)
+  "Syntax: (def-rewrite-pass name (params? flags) &body patterns)
 Defines a new expression rewrite pass. The flags specify
 the rewrite mode. Valid flags are:
     :canonic t            - The pass works on canonic expressions.
@@ -97,12 +93,16 @@ the rewrite mode. Valid flags are:
     :fallback-to pass     - Include rules from the specified pass.
     :recurse-function #'f - Controls the recursion mode.
                             (Default is equivalent to #'mapcar)
+It is possible to specify a list of additional mandatory parameters
+for a pass. The use of the &aux keyword is also allowed.
+
 Inside the rules the following expressions can be used:
     EXPR          - The expression being matched.
     OLD-EXPR      - Expression before recursive rewrite.
     (REDO X)      - Recursive call with a new expression.
     (FALLBACK X?) - Explicitly invoke the fallback pass."
-  (destructuring-bind (&key (canonic nil) (multiple-pass nil)
+  (destructuring-bind (step-params
+                       &key (canonic nil) (multiple-pass nil)
                             (unwrap-args canonic) (memoize-hash nil)
                             (fallback-to nil) (recurse-function nil)
                             (rewrite-engine (cond
@@ -111,12 +111,15 @@ Inside the rules the following expressions can be used:
                                               (canonic 'canonic-rewrite-rec-once)
                                               (multiple-pass 'rewrite-rec)
                                               (t 'rewrite-rec-once))))
-      params
+      (if (and params (listp (car params)))
+          params
+          (cons () params))
     (let* ((step-name     (rewrite-pass-step-name name))
            (expr-var      (intern "EXPR"))
            (old-expr-var  (intern "OLD-EXPR"))
            (redo-name     (intern "REDO"))
            (fallback-name (intern "FALLBACK"))
+           (norm-params   (get-normal-params step-params))
            (unwrap-expr   (if unwrap-args
                               `(canonic-unwrap-all ,expr-var)
                               expr-var))
@@ -125,7 +128,7 @@ Inside the rules the following expressions can be used:
                                      (recurse-function
                                       :map-recurse-func recurse-function))))
       `(progn
-         (defun ,step-name (,expr-var ,old-expr-var)
+         (defun ,step-name (,expr-var ,old-expr-var ,@step-params)
            (declare (ignorable ,old-expr-var))
            (macrolet ((,redo-name (ev)
                         `(,',step-name ,ev ,',old-expr-var))
@@ -139,6 +142,10 @@ Inside the rules the following expressions can be used:
                ,@(if (and fallback-to
                           (not (member '_ patterns :key #'first)))
                      (list `(_ (,fallback-name)))))))
-         (defun ,name (expr)
-           (,rewrite-engine #',step-name expr ,@engine-args))))))
+         (defun ,name (expr ,@norm-params)
+           (,rewrite-engine #',(if norm-params
+                                   `(lambda (expr old-expr)
+                                      (,step-name expr old-expr ,@norm-params))
+                                   step-name)
+                            expr ,@engine-args))))))
 
