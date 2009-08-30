@@ -145,11 +145,6 @@
                     (setf (gethash new tbl)
                         (gethash old tbl)))))))
 
-(defun hash-table-keys (table)
-    (let ((keys nil))
-        (do-hashtable (key val table keys)
-            (push key keys))))
-
 (defun sethash-all (table keys &optional (val t))
     (dolist (item keys table)
         (setf (gethash item table) val)))

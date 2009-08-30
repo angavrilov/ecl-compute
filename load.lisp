@@ -1,7 +1,7 @@
-(require 'standard-cl)
-(require 'cl-match)
-(require 'misc-extensions)
-(require 'fset)
+(asdf:operate 'asdf:load-op 'alexandria)
+(asdf:operate 'asdf:load-op 'cl-match)
+(asdf:operate 'asdf:load-op 'misc-extensions)
+(asdf:operate 'asdf:load-op 'fset)
 
 (cl-match:defpattern si:quasiquote (&rest args)
     (macroexpand-1 (cons 'si:quasiquote args)))

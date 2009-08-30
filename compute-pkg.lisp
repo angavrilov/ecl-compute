@@ -2,7 +2,7 @@
 
 (defpackage fast-compute
     (:documentation "Fast array computation library")
-    (:use "COMMON-LISP" "STANDARD-CL" "CL-MATCH"
+    (:use "COMMON-LISP" "CL-MATCH" "ALEXANDRIA"
           "FSET" "GMAP" "NEW-LET" "LEXICAL-CONTEXTS")
     (:export
         "MULTIVALUE" "MULTIVALUE-DATA" "MULTIVALUE-SYNC"
@@ -17,12 +17,15 @@
         "ALLOW-DENORMALIZED-FLOATS"
         "COMPUTE-BATCH"
     )
+    (:import-from "STANDARD-CL"
+                  "USE-STD-READTABLE" "DO-HASHTABLE"
+                  "SPLIT-LIST" "SUM" "WHILE" "UNTIL")
     (:shadowing-import-from "COMMON-LISP" "LET" "COND" "LAST")
     (:shadowing-import-from "FSET"
         ;; Shadowed type/constructor names
         "SET" "MAP"
-        ;; STANDARD-CL conflicts
-        "CONCAT" "RANGE"
+        ;; Alexandria conflicts
+        "REMOVEF" "UNIONF" "COMPOSE"
         ;; Shadowed set operations
         "UNION" "INTERSECTION" "SET-DIFFERENCE" "COMPLEMENT"
         ;; Shadowed sequence operations
