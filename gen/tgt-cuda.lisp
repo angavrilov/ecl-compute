@@ -469,5 +469,5 @@
                                               :max-registers max-registers))
                                       *loop-cluster-size* spill-to-shared
                                       range-list
-                                      (code-motion (expand-aref tex-expr)
+                                      (code-motion (expand-aref (optimize-tree tex-expr))
                                           :pull-symbols t))))))))))
