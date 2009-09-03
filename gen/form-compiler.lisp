@@ -1,4 +1,4 @@
-;;;; kate: indent-width 4; replace-tabs yes; space-indent on;
+;;; -*- mode:lisp; indent-tabs-mode: nil; -*-
 
 (in-package fast-compute)
 
@@ -54,11 +54,11 @@
                  (match cg-form
                    ,@body
                    (_
-                    (if cg-cur-stack
-                        (apply (car cg-cur-stack)
-                               cg-full-stack (cdr cg-cur-stack)
-                               cg-output cg-form cg-flags)
-                        (error "Cannot compile, unrecognized form: ~A" cg-form)))))))))
+                     (if cg-cur-stack
+                         (apply (car cg-cur-stack)
+                                cg-full-stack (cdr cg-cur-stack)
+                                cg-output cg-form cg-flags)
+                         (error "Cannot compile, unrecognized form: ~A" cg-form)))))))))
 
 (defmacro form-compiler (arg-set &body body)
   (assert (consp arg-set))

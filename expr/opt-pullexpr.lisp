@@ -1,4 +1,4 @@
-;;;; kate: indent-width 4; replace-tabs yes; space-indent on;
+;;; -*- mode:lisp; indent-tabs-mode: nil; -*-
 
 (in-package fast-compute)
 
@@ -13,14 +13,14 @@
            (args2 (mapcar #'(lambda (arg)
                               (match arg
                                 ((when (< val 0) (type number val))
-                                 (incf minus-cnt)
-                                 (- val))
+                                  (incf minus-cnt)
+                                  (- val))
                                 (`(- ,x)
                                   (incf minus-cnt)
                                   x)
                                 ((when (< val 0) `(/ ,(type number val)))
-                                 (incf minus-cnt)
-                                 `(/ ,(- val)))
+                                  (incf minus-cnt)
+                                  `(/ ,(- val)))
                                 (`(/ (- ,x))
                                   (incf minus-cnt)
                                   `(/ ,x))
@@ -62,15 +62,15 @@
                  ((null diff) 1)
                  ((null (cdr diff)) (car diff))
                  (t `(* ,@diff))))))
-   (match arg
-     (`(* ,@lst)
-       (cut-list lst))
-     (`(- (* ,@lst))
-       `(- ,(cut-list lst)))
-     (`(- ,x)
-       `(- ,(cut-list (list x))))
-     (_
-       (cut-list (list arg))))))
+    (match arg
+      (`(* ,@lst)
+        (cut-list lst))
+      (`(- (* ,@lst))
+        `(- ,(cut-list lst)))
+      (`(- ,x)
+        `(- ,(cut-list (list x))))
+      (_
+        (cut-list (list arg))))))
 
 (def-rewrite-pass pull-factors (:canonic t)
   (`(+ ,@args)

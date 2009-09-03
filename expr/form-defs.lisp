@@ -1,4 +1,4 @@
-;;;; kate: indent-width 4; replace-tabs yes; space-indent on;
+;;; -*- mode:lisp; indent-tabs-mode: nil; -*-
 
 (in-package fast-compute)
 
@@ -48,7 +48,7 @@
 ;;; Array dimension macro
 
 (defmacro arr-dim (arr idx rank)
-    `(array-dimension ,arr ,idx))
+  `(array-dimension ,arr ,idx))
 
 ;;; Expression flattening barrier
 
@@ -57,31 +57,31 @@
 ;;; Temporary buffer
 
 (defmacro temporary (name dims level &optional mode)
-    (if (null dims)
-        0.0
-        `(the (array single-float)
-             (make-array (list ,@dims)
-                 :element-type 'single-float
-                 :initial-element 0.0))))
+  (if (null dims)
+      0.0
+      `(the (array single-float)
+         (make-array (list ,@dims)
+                     :element-type 'single-float
+                     :initial-element 0.0))))
 
 (defmacro tmp-ref (temp &rest dims)
-    (if (null dims)
-        temp
-        `(aref ,temp ,@dims)))
+  (if (null dims)
+      temp
+      `(aref ,temp ,@dims)))
 
 ;;; Annotated range loop
 
 (defmacro loop-range (rangespec &body code)
-    (letmatch (ranging-spec var minv maxv stepv) rangespec
-        (if (> stepv 0)
-            `(do ((,var ,minv (+ ,var ,stepv)))
-                 ((> ,var ,maxv) nil)
-                 (declare (type fixnum ,var))
-                 ,@code)
-            `(do ((,var ,maxv (- ,var ,(- stepv))))
-                 ((< ,var ,minv) nil)
-                 (declare (type fixnum ,var))
-                 ,@code))))
+  (letmatch (ranging-spec var minv maxv stepv) rangespec
+    (if (> stepv 0)
+        `(do ((,var ,minv (+ ,var ,stepv)))
+             ((> ,var ,maxv) nil)
+           (declare (type fixnum ,var))
+           ,@code)
+        `(do ((,var ,maxv (- ,var ,(- stepv))))
+             ((< ,var ,minv) nil)
+           (declare (type fixnum ,var))
+           ,@code))))
 
 ;;; Range annotation helpers
 
@@ -115,27 +115,27 @@
 ;;; Factored expression helpers
 
 (defun get-full-expr (expr)
-    (cond
-        ((symbolp expr)
-            (or (get expr 'full-expr) expr))
-        ((consp expr)
-            (mapcar-save-old #'get-full-expr expr))
-        (t
-            expr)))
+  (cond
+    ((symbolp expr)
+     (or (get expr 'full-expr) expr))
+    ((consp expr)
+     (mapcar-save-old #'get-full-expr expr))
+    (t
+     expr)))
 
 (defun unwrap-factored (expr)
-    (let ((full-expr (if (symbolp expr) (get expr 'let-clause))))
-        (or (cadr full-expr) expr)))
+  (let ((full-expr (if (symbolp expr) (get expr 'let-clause))))
+    (or (cadr full-expr) expr)))
 
 (defun recurse-factored (fun expr &rest args)
-    (apply fun (unwrap-factored expr) args))
+  (apply fun (unwrap-factored expr) args))
 
 ;;; Fixed index expression predicate
 
 (defun index-expr-p (expr)
-    (or (numberp expr)
-        (and (consp expr)
-             (find (car expr)
+  (or (numberp expr)
+      (and (consp expr)
+           (find (car expr)
                  '(+ - * / 1+ 1- floor ceiling mod rem truncate index)))))
 
 ;;; Tree walker for skipping structure
@@ -166,38 +166,38 @@
                       (mapcar-save-old func dims)
                       tail))
     (_
-     (mapcar-save-old func expr))))
+      (mapcar-save-old func expr))))
 
 (defun apply-skipping-structure (fun expr args)
-    (match expr
-        (`(progn ,@rest)
-            (dolist (item rest)
-                (apply-skipping-structure fun item args)))
-        (`(,(or 'let 'let* 'symbol-macrolet 'loop-range) ,_ ,@rest)
-            (dolist (item rest)
-                (apply-skipping-structure fun item args)))
-        (`(safety-check ,checks ,@rest)
-            (dolist (item checks)
-                (apply-skipping-structure fun (first item) args))
-            (dolist (item rest)
-                (apply-skipping-structure fun item args)))
-        (`(setf ,_ ,_)
-            (apply fun expr args))
-        (`(declare ,@_) nil)
-        (_
-;            (format t "Unknown structure statement: ~A" expr)
-            (apply fun expr args))))
+  (match expr
+    (`(progn ,@rest)
+      (dolist (item rest)
+        (apply-skipping-structure fun item args)))
+    (`(,(or 'let 'let* 'symbol-macrolet 'loop-range) ,_ ,@rest)
+      (dolist (item rest)
+        (apply-skipping-structure fun item args)))
+    (`(safety-check ,checks ,@rest)
+      (dolist (item checks)
+        (apply-skipping-structure fun (first item) args))
+      (dolist (item rest)
+        (apply-skipping-structure fun item args)))
+    (`(setf ,_ ,_)
+      (apply fun expr args))
+    (`(declare ,@_) nil)
+    (_
+      ;; (format t "Unknown structure statement: ~A" expr)
+      (apply fun expr args))))
 
 ;;; Misc
 
 (defun range-band-master (range)
-    (let ((idx (second range)))
-        (or (get idx 'band-master)
-            idx)))
+  (let ((idx (second range)))
+    (or (get idx 'band-master)
+        idx)))
 
 (defun prepend-loop-item (rloop entry)
-    (setf (cddr rloop)
+  (setf (cddr rloop)
         (cons entry (cddr rloop))))
 
 (defun append-loop-item (rloop entry)
-    (nconc rloop (list entry)))
+  (nconc rloop (list entry)))

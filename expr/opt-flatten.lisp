@@ -1,4 +1,4 @@
-;;;; kate: indent-width 4; replace-tabs yes; space-indent on;
+;;; -*- mode:lisp; indent-tabs-mode: nil; -*-
 
 (in-package fast-compute)
 

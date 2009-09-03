@@ -1,4 +1,4 @@
-;;;; kate: indent-width 4; replace-tabs yes; space-indent on;
+;;; -*- mode:lisp; indent-tabs-mode: nil; -*-
 
 (in-package fast-compute)
 
@@ -20,8 +20,8 @@
             `(- ,(treeify+ a)
                 ,(treeify+ (mapcar #'toggle-minus b))))
           (_
-           `(+ ,(treeify+ a)
-               ,(treeify+ b)))))))
+            `(+ ,(treeify+ a)
+                ,(treeify+ b)))))))
 
 (defun treeify* (args)
   (labels ((is-div (x) (match x (`(/ ,_) t)))

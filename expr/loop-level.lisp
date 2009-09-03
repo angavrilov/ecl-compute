@@ -1,4 +1,4 @@
-;;;; kate: indent-width 4; replace-tabs yes; space-indent on;
+;;; -*- mode:lisp; indent-tabs-mode: nil; -*-
 
 (in-package fast-compute)
 
@@ -34,7 +34,7 @@
       ((type atom _) (empty-set))
       (`(temporary ,@_) (empty-set))
       ((ranging-spec _ :loop-level level)
-       (set level))
+        (set level))
       (`(tmp-ref ,tmp ,@args)
         (reduce #'union
                 (mapcar #'get-loop-levels args)

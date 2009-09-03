@@ -113,8 +113,60 @@ When Formula mode is enabled, code within {} is indented specially."
 (modify-syntax-entry ?] ")[" lisp-mode-syntax-table)
 
 
+;;; Indentation rules for macros used in this library
+
+;; Import: ECL FFI
+(put 'ffi:c-inline 'common-lisp-indent-function
+     '((&whole 4 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 &rest 1)
+       (&whole nil 1 1 1 1 1 1 1 1 1 1 1 1 1 1 1 &rest 1)
+       4 &body))
+
+(put 'ffi:def-struct 'common-lisp-indent-function 1)
+
+;; Import: misc-extensions
+(put 'nlet 'common-lisp-indent-function
+     (or (get 'let 'common-lisp-indent-function)
+         '((&whole 4 &rest (&whole 1 1 2)) &body)))
+
+;; Import: cl-match
+(put 'match 'common-lisp-indent-function
+     '(4 &rest (&whole 2 2 2 2 2 2 2 2 2 &rest 2)))
+     ;;; Lots of 2s to work around an apparent bug in &rest
+
+(put 'ifmatch 'common-lisp-indent-function
+     '(6 nil 4 &body))
+
+(put 'letmatch 'common-lisp-indent-function
+     '(6 nil &body))
+
+;; rewrite engine
+(put 'def-rewrite-pass 'common-lisp-indent-function
+     '(4 (&whole 4 &rest 1)
+         &rest (&whole 2 2 2 2 2 2 2 2 2 &rest 2)))
+
+;; threads
+(put 'condition-wait-spin 'common-lisp-indent-function
+     '((&whole 4 1 1 1 1 &rest 1) &body))
+
+;; code generation
+(put 'def-form-compiler 'common-lisp-indent-function
+     '(4 (&whole 4 &rest 1)
+         &rest (&whole 2 2 2 2 2 2 2 2 2 &rest 2)))
+
+(put 'form-compiler 'common-lisp-indent-function
+     '((&whole 4 &rest 1)
+         &rest (&whole 2 2 2 2 2 2 2 2 2 &rest 2)))
+
+;; misc
+(put 'use-cache 'common-lisp-indent-function 1)
+(put 'pipeline 'common-lisp-indent-function 1)
+(put 'do-wrap-loops 'common-lisp-indent-function '(&rest nil))
+(put 'error-fallback 'common-lisp-indent-function 2)
+(put 'wrap-compute-sync-data 'common-lisp-indent-function 2)
+
+
 ;;; Some tweaks for the indentation of the compute statement.
-(put 'compute 'common-lisp-indent-function 
+(put 'compute 'common-lisp-indent-function
      '(4 4 2 &rest 2))
 
 (put ':kernel-name 'common-lisp-indent-function

@@ -1,4 +1,4 @@
-;;;; kate: indent-width 4; replace-tabs yes; space-indent on;
+;;; -*- mode:lisp; indent-tabs-mode: nil; -*-
 
 (in-package fast-compute)
 
@@ -25,10 +25,10 @@
           (canonic-expr-id expr) (canonic-expr-node expr)))
 
 (defmethod compare ((e1 canonic-expr) (e2 canonic-expr))
-    (let ((cv (compare-slots e1 e2 #'canonic-expr-id)))
-        (if (and (eql cv :equal) (not (eql e1 e2)))
-            :unequal
-            cv)))
+  (let ((cv (compare-slots e1 e2 #'canonic-expr-id)))
+    (if (and (eql cv :equal) (not (eql e1 e2)))
+        :unequal
+        cv)))
 
 (define-cross-type-compare-methods canonic-expr)
 
@@ -88,7 +88,7 @@
                                   (stable-sort (mapcar #'lookup args)
                                                #'less?))))
                  (_
-                  (mapcar #'lookup-unwrap expr)))))
+                   (mapcar #'lookup-unwrap expr)))))
       (lookup expr))))
 
 (defun canonify-tree (expr &key (cache *canonify-cache*))
@@ -124,31 +124,31 @@
          (lookup-canonic expr2)))
 
 (defun common-sublist (list1 list2)
-    (cond
-        ((null list1) nil)
-        ((null list2) nil)
-        ((eql (car list1) (car list2))
-            (cons (car list1)
-                (common-sublist (cdr list1) (cdr list2))))
-        ((canonify-compare (car list1) (car list2))
-            (common-sublist (cdr list1) list2))
-        ((canonify-compare (car list2) (car list1))
-            (common-sublist (cdr list1) list2))
-        (t
-            (common-sublist (cdr list1) (cdr list2)))))
+  (cond
+    ((null list1) nil)
+    ((null list2) nil)
+    ((eql (car list1) (car list2))
+     (cons (car list1)
+           (common-sublist (cdr list1) (cdr list2))))
+    ((canonify-compare (car list1) (car list2))
+     (common-sublist (cdr list1) list2))
+    ((canonify-compare (car list2) (car list1))
+     (common-sublist (cdr list1) list2))
+    (t
+     (common-sublist (cdr list1) (cdr list2)))))
 
 (defun subtract-list (list1 list2)
-    (cond
-        ((null list2) list1)
-        ((null list1)
-            (error "Cannot subtract ~A from NIL" list2))
-        ((eql (car list1) (car list2))
-            (subtract-list (cdr list1) (cdr list2)))
-        ((canonify-compare (car list1) (car list2))
-            (cons (car list1)
-                (subtract-list (cdr list1) list2)))
-        (t
-            (error "Cannot subtract ~A from ~A" list2 list1))))
+  (cond
+    ((null list2) list1)
+    ((null list1)
+     (error "Cannot subtract ~A from NIL" list2))
+    ((eql (car list1) (car list2))
+     (subtract-list (cdr list1) (cdr list2)))
+    ((canonify-compare (car list1) (car list2))
+     (cons (car list1)
+           (subtract-list (cdr list1) list2)))
+    (t
+     (error "Cannot subtract ~A from ~A" list2 list1))))
 
 ;;; Helper macros
 
@@ -167,7 +167,7 @@
     (labels ((recurse (expr)
                (use-cache (expr memo)
                  (multiple-value-bind (subs-res final) (funcall engine expr)
-                   (if final ; Cut off recursion
+                   (if final            ; Cut off recursion
                        (or subs-res (lookup-canonic expr))
                        (let* ((new-expr (if subs-res
                                             (canonic-expr-force-unwrap subs-res)

@@ -1,4 +1,4 @@
-;;;; kate: indent-width 4; replace-tabs yes; space-indent on;
+;;; -*- mode:lisp; indent-tabs-mode: nil; -*-
 
 (in-package fast-compute)
 
@@ -76,11 +76,11 @@ Applies the rewrite pass rules to the expression once."
     (nil nil)
     ((list* '&aux _) nil)
     ((list* (or '&key '&optional '&body '&rest) _)
-     (error "Cannot use optional parameters in def-rewrite-pass: ~A" params))
+      (error "Cannot use optional parameters in def-rewrite-pass: ~A" params))
     ((list* (type symbol a) b)
-     (cons a (get-normal-params b)))
+      (cons a (get-normal-params b)))
     (_
-     (error "Invalid parameter notation in def-rewrite-pass: ~A" params))))
+      (error "Invalid parameter notation in def-rewrite-pass: ~A" params))))
 
 (defmacro def-rewrite-pass (name params &body patterns)
   "Syntax: (def-rewrite-pass name (params? flags) &body patterns)
@@ -102,15 +102,16 @@ Inside the rules the following expressions can be used:
     (REDO X)      - Recursive call with a new expression.
     (FALLBACK X?) - Explicitly invoke the fallback pass."
   (destructuring-bind (step-params
-                       &key (canonic nil) (multiple-pass nil)
-                            (unwrap-args canonic) (memoize-hash nil)
-                            (fallback-to nil) (recurse-function nil)
-                            (rewrite-engine (cond
-                                              ((and canonic multiple-pass)
-                                               'canonic-rewrite-rec)
-                                              (canonic 'canonic-rewrite-rec-once)
-                                              (multiple-pass 'rewrite-rec)
-                                              (t 'rewrite-rec-once))))
+                       &key
+                       (canonic nil) (multiple-pass nil)
+                       (unwrap-args canonic) (memoize-hash nil)
+                       (fallback-to nil) (recurse-function nil)
+                       (rewrite-engine (cond
+                                         ((and canonic multiple-pass)
+                                          'canonic-rewrite-rec)
+                                         (canonic 'canonic-rewrite-rec-once)
+                                         (multiple-pass 'rewrite-rec)
+                                         (t 'rewrite-rec-once))))
       (if (and params (listp (car params)))
           params
           (cons () params))
@@ -135,7 +136,7 @@ Inside the rules the following expressions can be used:
                       (,fallback-name (&optional ev)
                         ,(if fallback-to
                              ``(,',(rewrite-pass-step-name fallback-to)
-                                  ,(or ev ',expr-var))
+                                   ,(or ev ',expr-var))
                              `(declare (ignore ev)))))
              (match ,unwrap-expr
                ,@patterns
