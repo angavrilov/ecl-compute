@@ -27,8 +27,7 @@
       (error "Let in a non-stmt context: ~A" form))
     (text "{~%")
     (dolist (assn assns)
-      (recurse
-       `(setf-tmp ,(first assn) ,(second assn))))
+      (recurse `(setf-tmp ,(first assn) ,(second assn))))
     (dolist (cmd body)
       (recurse cmd :stmt-p t))
     (text "}~%"))
@@ -39,12 +38,10 @@
       (recurse cmd :stmt-p t)))
 
   (`(progn ,cmd1 ,@rest)
-    (text "(")
-    (recurse cmd1)
+    (code "(" cmd1)
     (dolist (cmd rest)
-      (text ",~%")
-      (recurse cmd))
-    (text ")")))
+      (code ",~%" cmd))
+    (code ")")))
 
 (def-form-compiler compile-generic-c (form form-type stmt-p)
   ((type float fv)
@@ -61,52 +58,35 @@
   ((when (and (eql form-type 'float)
               (> (or (get sym 'fdiv-users) 0) 1))
      `(/ ,x ,(type symbol sym)))
-    (unless (and (numberp x)
-                 (= x 1))
-      (text "(")
-      (recurse x)
-      (text ")*"))
+    (unless (and (numberp x) (= x 1))
+      (code "(" x ")*"))
     (text "~A_fdiv" (temp-symbol-name sym)))
 
   ((when (eql form-type 'float)
      `(/ ,x))
-    (text "1.0f/(")
-    (recurse x)
-    (text ")"))
+    (code "1.0f/(" x ")"))
 
   (`(,(as op (or '+ '- '* '/ 'truncate 'rem 'ptr+
                  'and 'or '> '< '>= '<= '/= '=)) ,a ,b)
-    (text "(")
-    (recurse a)
-    (text ")~A("
-          (case op
-            ((+ - * / < > >= <=) op)
-            (/= "!=")
-            (= "==")
-            (ptr+ "+")
-            (and "&&")
-            (or "||")
-            (truncate "/")
-            (rem "%")))
-    (recurse b)
-    (text ")"))
+    (code "(" a ")"
+          ("~A" (case op
+                  ((+ - * / < > >= <=) op)
+                  (/= "!=")
+                  (= "==")
+                  (ptr+ "+")
+                  (and "&&")
+                  (or "||")
+                  (truncate "/")
+                  (rem "%")))
+          "(" b ")"))
 
   (`(,(as op (or '+ '-)) ,a)
-    (text "~A(" op)
-    (recurse a)
-    (text ")"))
+    (code ("~A(" op) a ")"))
 
   (`(,(as op (or 'max 'min)) ,a ,b)
-    (text "(((")
-    (recurse a)
-    (text ")~A("
-          (if (eql op 'min) "<" ">"))
-    (recurse b)
-    (text "))?(")
-    (recurse a)
-    (text "):(")
-    (recurse b)
-    (text "))"))
+    (code "(((" a ")"
+          (:text (if (eql op 'min) "<" ">"))
+          "(" b "))?(" a "):(" b "))"))
 
   ;; This is actually incorrect, because integer division
   ;; in C is equivalent to truncate, but we use them only
@@ -116,8 +96,7 @@
   ((when (and (eql form-type 'integer)
               (= (logand b (1- b)) 0))
      `(,(as op (or 'floor 'mod)) ,a ,(type integer b)))
-    (text "(((int)(")
-    (recurse a)
+    (code "(((int)(" a)
     (if (eql op 'floor)
         (text "))>>~A)"
               (do ((cnt 0 (1+ cnt))
@@ -127,20 +106,16 @@
 
   ((when (eql form-type 'integer)
      `(,(as op (or 'floor 'mod)) ,a ,b))
-    (text "((int)((")
-    (recurse a)
-    (text ")~A("
-          (case op
-            (floor "/")
-            (mod "%")))
-    (recurse b)
-    (text ")))"))
+    (code "((int)((" a ")"
+          (:text (ecase op
+                   (floor "/")
+                   (mod "%")))
+          "(" b ")))"))
 
   ((when (eql form-type 'integer)
      `(ceiling ,a ,(type integer b)))
-    (text "((int)(((")
-    (recurse a)
-    (text ")+~A)/~A))" (1- b) b))
+    (code "((int)(((" a
+          (")+~A)/~A))" (1- b) b)))
 
   (`(,(as func (or 'floor 'ceiling 'sin 'cos 'exp 'expt))
       ,arg ,@rest)
@@ -154,80 +129,50 @@
             (exp "expf")))
     (recurse arg)
     (dolist (arg2 rest)
-      (text ", ")
-      (recurse arg2))
+      (code ", " arg2))
     (text ")"))
 
   (`(float-sign ,arg)
     (recurse `(float-sign ,arg 1.0)))
 
   (`(float-sign ,arg ,base)
-    (text "copysignf(")
-    (recurse base)
-    (text ", ")
-    (recurse arg)
-    (text ")"))
+    (code "copysignf(" base ", " arg ")"))
 
   (`(ptr-deref ,ptr)
-    (text "*(")
-    (recurse ptr)
-    (text ")"))
+    (code "*(" ptr ")"))
 
   (`(texture-ref-int ,name ,idx)
-    (text "tex1Dfetch(~A, " name)
-    (recurse idx)
-    (text ")"))
+    (code ("tex1Dfetch(~A, " name) idx ")"))
 
   (`(texture-ref ,name ,idx1 ,idx2)
-    (text "tex2D(~A, " name)
-    (recurse idx2)
-    (text ", ")
-    (recurse idx1)
-    (text ")"))
+    (code ("tex2D(~A, " name) idx2 ", " idx1 ")"))
 
   ((when stmt-p
      `(if ,icond ,a ,b))
-    (text "if (")
-    (recurse icond)
-    (text ") {~%")
-    (recurse a :stmt-p t)
-    (text "} else {~%")
-    (recurse b :stmt-p t)
-    (text "}~%"))
+    (code "if (" icond ") {~%"
+          (:recurse a :stmt-p t)
+          "} else {~%"
+          (:recurse b :stmt-p t)
+          "}~%"))
 
   (`(if ,icond ,a ,b)
-    (text "(")
-    (recurse icond)
-    (text ") ? (")
-    (recurse a)
-    (text ") : (")
-    (recurse b)
-    (text ")"))
+    (code "(" icond ") ? (" a ") : (" b ")"))
 
   (`(setf ,target ,expr)
-    (recurse target)
-    (text " = (")
-    (recurse expr)
-    (text ")")
-    (when stmt-p
-      (text ";~%"))))
+    (code target " = (" expr ")" (:when stmt-p ";~%"))))
 
 (def-form-compiler compile-c-inline-temps (form)
   (`(setf-tmp ,var (temporary ',name ,dims ,@_))
     (let* ((const-dim (if (and dims (every #'numberp dims))
                           (reduce #'* dims)))
            (is-const (and const-dim (< const-dim 65536))))
-      (text "float")
-      (unless (or (null dims) is-const)
-        (text "*"))
-      (text " ~A" (temp-symbol-name var))
+      (code "float" (:unless (or (null dims) is-const) "*")
+            (" ~A" (temp-symbol-name var)))
       (cond
         (is-const
          (text "[~A]" const-dim))
         (dims
-         (text " = (float*)ecl_alloc_atomic(")
-         (recurse (reduce #'join* dims))
-         (text ")")))
+         (code " = (float*)ecl_alloc_atomic(" (reduce #'join* dims) ")")))
       (text "; /* ~A */~%" name)))
 
   (`(setf-tmp ,var ,expr)
