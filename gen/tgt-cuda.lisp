@@ -78,8 +78,7 @@
           (var-fdiv (or (get var 'fdiv-users) 0)))
       (text "~A ~A = ("
             (get-cuda-type-string expr) var-name)
-      (recurse expr)
-      (text ");~%")
+      (code expr ");~%")
       (when (> var-fdiv 1)
         (text "float ~A_fdiv = (1.0f/~A);~%"
               var-name var-name))))
@@ -140,10 +139,7 @@
                        (misalignment (mod delta 16)))
                   (if (or (not (eql istep 1))
                           (eql misalignment 0))
-                      (progn
-                        (text "*(")
-                        (recurse ptr)
-                        (text ")"))
+                      (code "*(" ptr ")")
                       (progn
                         (setf needs-scratch t)
                         (text "(__scratch_ptr=(")
@@ -155,13 +151,7 @@
                               misalignment misalignment)
                         (text "__syncthreads(),__scratch[threadIdx.x])")))))
               (`(setf (ptr-deref ,ptr) ,expr)
-                (text "*(")
-                (recurse ptr)
-                (text ")=(")
-                (recurse expr)
-                (text ")")
-                (when stmt-p
-                  (text ";~%")))))
+                (code "*(" ptr ")=(" expr ")" (:when stmt-p ";~%")))))
            (block-compiler
             (form-compiler (form)
               ((type symbol sym)
@@ -178,22 +168,16 @@
                     (error "Bad inner loop dimension ~A: ~A ~A" rgv
                            (get-full-expr (second form)) (second form)))
                   (when ordered
-                    (text "__syncthreads();~%"))
-                  (text "{~%int ~A = (" arg)
-                  (recurse base)
-                  (text ") + threadIdx.x*~A;~%" (abs delta))
-                  (text "if (")
+                    (code "__syncthreads();~%"))
+                  (code ("{~%int ~A = (" arg) base (") + threadIdx.x*~A;~%" (abs delta)))
+                  (code "if (")
                   (when minv
-                    (text "~A >= (" arg)
-                    (recurse minv)
-                    (text ")"))
+                    (code ("~A >= (" arg) minv ")"))
                   (when (and minv maxv)
-                    (text " && "))
+                    (code " && "))
                   (when maxv
-                    (text "~A <= (" arg)
-                    (recurse maxv)
-                    (text ")"))
-                  (text ") {~%")
+                    (code ("~A <= (" arg) maxv ")"))
+                  (code ") {~%")
                   (if ordered
                       (multiple-value-bind (preamble inner escape-vars final)
                           (make-flattened-loop `(progn ,@body) *cg-type-table*)

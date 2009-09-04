@@ -114,34 +114,26 @@
      `(/ ,x ,(type symbol sym)))
     (if (and (numberp x)
              (= x 1))
-        (text "(")
-        (progn
-          (text "_mm_mul_ps(")
-          (recurse x)
-          (text ",")))
+        (code "(")
+        (code "_mm_mul_ps(" x ","))
     (let ((fd-name (format nil "~A_fdiv" (temp-symbol-name sym))))
       (if (eql (get sym 'loop-level) 0)
           (text fd-name)
           (text (ref-sse-extvar fd-name))))
-    (text ")"))
+    (code ")"))
 
   (`(/ ,x ,(type number num))
-    (text "_mm_mul_ps(")
-    (recurse x)
-    (text ",_mm_set1_ps(1.0/~A))" num))
+    (code "_mm_mul_ps(" x (",_mm_set1_ps(1.0/~A))" num)))
 
   (`(/ ,(type number num))
     (text "_mm_set1_ps(1.0/~A)" num))
 
   (`(/ ,x)
-    (text "_mm_div_ps(_mm_set1_ps(1.0),")
-    (recurse x)
-    (text ")"))
+    (code "_mm_div_ps(_mm_set1_ps(1.0)," x ")"))
 
   (`(,(as op (or '+ '- '* '/ 'max 'min
                  'and 'or '> '< '>= '<= '/= '=)) ,a ,b)
-    (text "~A("
-          (case op
+    (text (case op
             (+ "_mm_add_ps")
             (- "_mm_sub_ps")
             (* "_mm_mul_ps")
@@ -156,35 +148,23 @@
             (or "_mm_or_ps")
             (max "_mm_max_ps")
             (min "_mm_min_ps")))
-    (recurse a)
-    (text ",")
-    (recurse b)
-    (text ")"))
+    (code "(" a "," b ")"))
 
   (`(+ ,a)
     (recurse a))
 
   (`(- ,a)
-    (text "_mm_xor_ps(__sign_mask.sse,")
-    (recurse a)
-    (text ")"))
+    (code "_mm_xor_ps(__sign_mask.sse," a ")"))
 
   (`(,(as func (or 'floor 'ceiling 'sin 'cos 'exp 'expt)) ,@_)
     (error "Functions not supported in SSE: ~A" func))
 
   (`(float-sign ,arg ,(type number base))
-    (text "_mm_or_ps(")
-    (recurse (abs base))
-    (text ",_mm_and_ps(__sign_mask.sse,")
-    (recurse arg)
-    (text "))"))
+    (code "_mm_or_ps(" (abs base) ",_mm_and_ps(__sign_mask.sse," arg "))"))
 
   (`(float-sign ,arg ,base)
-    (text "_mm_or_ps(_mm_andnot_ps(__sign_mask.sse,")
-    (recurse base)
-    (text "),_mm_and_ps(__sign_mask.sse,")
-    (recurse arg)
-    (text "))"))
+    (code "_mm_or_ps(_mm_andnot_ps(__sign_mask.sse," base "),"
+          "_mm_and_ps(__sign_mask.sse," arg "))"))
 
   (`(ptr-deref ,ptr)
     (if (is-level0-ptr ptr)
@@ -201,40 +181,28 @@
              (and (numberp b) (= b 0)))
      `(if ,icond ,a ,b))
     (let ((a-zero (and (numberp a) (= a 0))))
-      (text (if a-zero "_mm_andnot_ps(" "_mm_and_ps("))
-      (recurse icond)
-      (text ",~%")
-      (recurse (if a-zero b a))
-      (text ")")))
+      (text (if a-zero "_mm_andnot_ps" "_mm_and_ps"))
+      (code "(" icond ",~%" (if a-zero b a) ")")))
 
   (`(if ,icond ,a ,b)
     (let ((tmp-name (make-sse-auxvar)))
-      (text "(~A = (" tmp-name)
-      (recurse icond)
-      (text "),~%_mm_or_ps(_mm_and_ps(~A," tmp-name)
-      (recurse a)
-      (text "),~%_mm_andnot_ps(~A," tmp-name)
-      (recurse b)
-      (text ")~%))")))
+      (code ("(~A = (" tmp-name) icond "),~%"
+            ("_mm_or_ps(_mm_and_ps(~A," tmp-name) a "),~%"
+            ("_mm_andnot_ps(~A," tmp-name) b ")~%))")))
 
   ((when stmt-p
      `(setf (ptr-deref ,target) ,expr))
     (unless (is-level0-ptr target)
       (error "Store to a non-inner ptr in SSE: ~A" form))
-    (text "_mm_storeu_ps(~A,~%"
-          (compile-sse-ptr target))
-    (recurse expr)
-    (text ");~%"))
+    (code ("_mm_storeu_ps(~A,~%" (compile-sse-ptr target)) expr ");~%"))
 
   (`(setf (ptr-deref ,target) ,expr)
     (unless (is-level0-ptr target)
       (error "Store to a non-inner ptr in SSE: ~A" form))
     (let ((tmp-name (make-sse-auxvar)))
-      (text "(~A = (" tmp-name)
-      (recurse expr)
-      (text "),~%_mm_storeu_ps(~A, ~A), ~A)"
-            (compile-sse-ptr target)
-            tmp-name tmp-name))))
+      (code ("(~A = (" tmp-name) expr "),~%"
+            ("_mm_storeu_ps(~A, ~A), ~A)" (compile-sse-ptr target)
+                                          tmp-name tmp-name)))))
 
 (defun compile-expr-sse (types ext-vars full_expr)
   (let ((*cg-sse-auxvars* ())
