@@ -123,15 +123,19 @@
          (*consistency-checks* (make-hash-table :test #'equal)))
     (multiple-value-bind (loop-expr loop-list range-list)
         (make-compute-loops name idxspec expr with where carrying precompute)
-      (let* ((nomacro-expr (expand-macros loop-expr))
-             (nolet-expr   (expand-let nomacro-expr))
-             (noiref-expr (simplify-iref nolet-expr))
+      ;; Apply optimizations
+      (let* ((noiref-expr (pipeline loop-expr
+                            expand-macros expand-let make-canonic
+                            simplify-iref))
+             ;; A table of all array references
              (ref-list    (collect-arefs noiref-expr))
-             ;; (opt-expr    (optimize-tree noiref-expr))
-             (noaref-expr (expand-aref noiref-expr))
-             (check-expr  (insert-checks noaref-expr)))
+             ;; Apply final transformations
+             (res-expr    (pipeline noiref-expr
+                            expand-aref canonic-expr-unwrap
+                            insert-checks)))
+        ;; Generate the computation code
         (wrap-compute-sync-data :host ref-list
-          (wrap-compute-parallel parallel range-list check-expr
+          (wrap-compute-parallel parallel range-list res-expr
                                  #'(lambda (code)
                                      `(let ((*current-compute* ',original))
                                         ,(compile-expr-generic

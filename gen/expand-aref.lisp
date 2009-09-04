@@ -25,8 +25,8 @@
     (x (list x))))
 
 (defun sort-summands-by-level (exprs)
-  (let* ((ofs-items (get-summands
-                     (flatten-exprs (make-canonic `(+ ,@exprs)))))
+  (let* ((ofs-items (pipeline `(+ ,@exprs)
+                      make-canonic flatten-exprs get-summands))
          (num-ofs-items (remove-if-not #'numberp ofs-items))
          (var-ofs-items (remove-if #'numberp ofs-items))
          (levels   (sort (remove-duplicates
@@ -44,27 +44,18 @@
   (`(arr-ptr (temporary ,@_))                (second expr))
   (`(arr-dim (temporary ,_ ,dims ,@_) ,i ,_) (nth i dims)))
 
-(defun expand-aref-1 (expr old-expr)
-  (match expr
-    (`(aref ,name ,@idxvals)
-      (let* ((idx-cnt    (length idxvals))
-             (stride-lst (aref-stride-list name idx-cnt))
-             (ofs-lst    (mapcar #'join* idxvals stride-lst))
-             (summands   (sort-summands-by-level ofs-lst)))
-        `(ptr-deref ,(reduce #'(lambda (base ofs)
-                                 `(ptr+ ,base ,ofs))
-                             summands
-                             :initial-value `(arr-ptr ,name)))))
-    (`(tmp-ref ,name)
-      nil)
-    (`(tmp-ref ,name ,@idxvals)
-      (let ((rexpr (expand-aref-1 `(aref ,name ,@idxvals) old-expr)))
-        (simplify-index (eval-temporary-dims rexpr))))
-    (_ nil)))
-
-(defun expand-aref (expr)
-  (simplify-rec-once
-   (cached-simplifier expand-aref-1
-                      `(,(or 'aref 'tmp-ref) ,@_)
-                      (make-hash-table :test #'equal))
-   expr))
+(def-rewrite-pass expand-aref (:canonic t)
+  (`(aref ,name ,@idxvals)
+    (let* ((idx-cnt    (length idxvals))
+           (stride-lst (aref-stride-list name idx-cnt))
+           (ofs-lst    (mapcar #'join* idxvals stride-lst))
+           (summands   (sort-summands-by-level ofs-lst)))
+      `(ptr-deref ,(reduce #'(lambda (base ofs)
+                               `(ptr+ ,base ,ofs))
+                           summands
+                           :initial-value `(arr-ptr ,name)))))
+  (`(tmp-ref ,name)
+    nil)
+  (`(tmp-ref ,name ,@idxvals)
+    (let ((rexpr (expand-aref-1 `(aref ,name ,@idxvals) old-expr)))
+      (simplify-index (eval-temporary-dims rexpr)))))

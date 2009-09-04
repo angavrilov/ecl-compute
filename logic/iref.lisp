@@ -117,37 +117,28 @@
       (dolist (arg rest) (check-index-alignment arg iref-expr aref-expr))
       nil)))
 
-(defun simplify-iref-1 (expr old-expr)
-  (match expr
-    (`(iref ,name ,@idxvals)
-      (multiple-value-bind (rexpr mv-p checks)
-          (expand-iref name idxvals :verbose-p *consistency-checks*)
-        (unless mv-p
-          (error "Not a multivalue reference: ~A" expr))
-        (when (eql mv-p :macro)
-          (return-from simplify-iref-1
-            (simplify-iref rexpr)))
-        (check-index-alignment rexpr expr rexpr)
-        (when *consistency-checks*
-          ;; Remember bound consistency checks
-          (dolist (check checks)
-            (incf-nil (gethash check *consistency-checks*)))
-          ;; Create dimension consistency checks
-          (do ((dims (get name 'mv-dimensions) (cdr dims))
-               (rank (length (get name 'mv-dimensions)))
-               (idx 0 (1+ idx)))
-              ((null dims) nil)
-            (incf-nil
-             (gethash `(<= ,(car dims)
-                           (arr-dim (multivalue-data ,name t)
-                                    ,idx ,rank))
-                      *consistency-checks*))))
-        ;; Return the expression
-        rexpr))
-    (_ nil)))
-
-(defun simplify-iref (expr)
-  (simplify-rec-once (cached-simplifier simplify-iref-1
-                                        `(iref ,@_)
-                                        (make-hash-table :test #'equal))
-                     expr))
+(def-rewrite-pass simplify-iref (:canonic t)
+  (`(iref ,name ,@idxvals)
+    (multiple-value-bind (rexpr mv-p checks)
+        (expand-iref name idxvals :verbose-p *consistency-checks*)
+      (unless mv-p
+        (error "Not a multivalue reference: ~A" expr))
+      (if (eql mv-p :macro)
+          (simplify-iref (make-canonic rexpr))
+          (prog1
+              rexpr
+            ;; Verify before returning
+            (check-index-alignment rexpr expr rexpr)
+            (when *consistency-checks*
+              ;; Remember bound consistency checks
+              (dolist (check checks)
+                (incf-nil (gethash check *consistency-checks*)))
+              ;; Create dimension consistency checks
+              (do ((dims (get name 'mv-dimensions) (cdr dims))
+                   (rank (length (get name 'mv-dimensions)))
+                   (idx 0 (1+ idx)))
+                  ((null dims) nil)
+                (incf-nil (gethash `(<= ,(car dims)
+                                        (arr-dim (multivalue-data ,name t)
+                                                 ,idx ,rank))
+                                   *consistency-checks*)))))))))

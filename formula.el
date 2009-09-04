@@ -125,8 +125,7 @@ When Formula mode is enabled, code within {} is indented specially."
 
 ;; Import: misc-extensions
 (put 'nlet 'common-lisp-indent-function
-     (or (get 'let 'common-lisp-indent-function)
-         '((&whole 4 &rest (&whole 1 1 2)) &body)))
+     '((&whole 4 &rest (&whole 1 1 1 1 1 1 1 1 1 &rest 1)) &body))
 
 ;; Import: cl-match
 (put 'match 'common-lisp-indent-function

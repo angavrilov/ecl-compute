@@ -44,13 +44,8 @@
                    (if written
                        (push indexes (cadr rentry))
                        (push indexes (car rentry)))))))
-      (do-collect tree)
-      (let ((res-list nil))
-        (maphash
-         #'(lambda (key info)
-             (push (cons key info) res-list))
-         res-tbl)
-        res-list))))
+      (do-collect (canonic-expr-unwrap tree))
+      (hash-table-alist res-tbl))))
 
 (defun get-ref-root (expr)
   (match expr

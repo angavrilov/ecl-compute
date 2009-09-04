@@ -404,27 +404,32 @@
           (make-compute-loops name idxspec expr with
                               where carrying precompute
                               :force-cluster t)
-        (let* ((nomacro-expr (expand-macros loop-expr))
-               (nolet-expr   (expand-let nomacro-expr))
-               (noiref-expr (simplify-iref nolet-expr))
+        ;; Apply optimizations
+        (let* ((noiref-expr (pipeline loop-expr
+                              expand-macros expand-let make-canonic
+                              simplify-iref))
+               ;; A table of all array references
                (ref-list    (collect-arefs noiref-expr))
-               ;; (opt-expr    (optimize-tree noiref-expr))
-               (ltemp-expr (localize-temps noiref-expr ref-list range-list)))
-          (multiple-value-bind (tex-expr tex-list)
-              (use-textures (convert 'set textures) ltemp-expr)
-            (let ((c-levels (remove nil (get-check-level-set))))
-              (unless (null c-levels)
-                (error "Safety checks not supported by CUDA:~%  ~A"
-                       (mapcan #'get-checks-for-level c-levels))))
+               ;; Convert temporary arrays to registers where possible
+               (ltemp-expr  (localize-temps noiref-expr ref-list range-list)))
+          (nlet (;; Use textures where requested
+                 (tex-expr tex-list (use-textures (convert 'set textures) ltemp-expr))
+                 ;; Apply final transformations
+                 ((res-expr (pipeline tex-expr
+                              expand-aref optimize-tree
+                              (code-motion _ :pull-symbols t)))
+                  ;; Inner check levels
+                  (c-levels (remove nil (get-check-level-set)))))
+            ;; Only top-level safety checks
+            (unless (null c-levels)
+              (error "Safety checks not supported by CUDA:~%  ~A"
+                     (mapcan #'get-checks-for-level c-levels)))
+            ;; Generate the kernel call
             (wrap-compute-sync-data :cuda-device ref-list
               `(let ((*current-compute* ',original))
                  ,(insert-checks nil)
-                 ,(compile-expr-cuda
-                   (cond-list (t :name kernel-name)
-                              (tex-list :textures tex-list)
-                              (max-registers
-                               :max-registers max-registers))
-                   *loop-cluster-size* spill-to-shared
-                   range-list
-                   (code-motion (expand-aref (optimize-tree tex-expr))
-                                :pull-symbols t))))))))))
+                 ,(compile-expr-cuda (cond-list (t :name kernel-name)
+                                                (tex-list :textures tex-list)
+                                                (max-registers :max-registers max-registers))
+                                     *loop-cluster-size* spill-to-shared
+                                     range-list res-expr)))))))))

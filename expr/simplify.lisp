@@ -101,10 +101,17 @@
         ,(type integer divv)))
     `(+ (,cmd (* ,marg ,mulv) ,divv)
         (,cmd (,op ,remv) ,divv)))
+
+  ((when (= (mod mulv divv) 0)
+     `(,(as cmd (or 'mod 'floor 'ceiling)) ; no truncate & rem !
+        (+ ,remv (* ,marg ,(type integer mulv)))
+        ,(type integer divv)))
+    `(+ (,cmd ,remv ,divv)
+        (,cmd (* ,marg ,mulv) ,divv)))
   ;; Likewise for aligned constants
   ((when (= (mod remv divv) 0)
      `(,(as cmd (or 'mod 'floor 'ceiling)) ; no truncate & rem !
-        (,(as op (or '+ '-)) ,exv ,remv)
+        (,(as op (or '+ '-)) ,exv ,(type integer remv))
         ,(type integer divv)))
     `(+ (,cmd ,exv ,divv)
         (,cmd (,op ,remv) ,divv)))

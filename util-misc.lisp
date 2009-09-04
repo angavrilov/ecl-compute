@@ -74,19 +74,6 @@
                     (subst-save-old new old (car expr))
                     (subst-save-old new old (cdr expr))))))
 
-(defun simplify-rec (engine expr cache)
-  (if (or (atom expr) (gethash expr cache))
-      expr
-      (let* ((rec-res (mapcar-save-old #'(lambda (sub)
-                                           (simplify-rec engine sub cache))
-                                       expr))
-             (subs-res (funcall engine rec-res expr)))
-        (if (null subs-res)
-            (progn
-              (setf (gethash rec-res cache) t)
-              rec-res)
-            (simplify-rec engine subs-res cache)))))
-
 (defun simplify-rec-once (engine expr)
   (let* ((rec-res (if (atom expr)
                       expr
@@ -170,15 +157,6 @@
            (setf (gethash ,key ,cache)
                  (progn ,@code))))))
 
-(defmacro cached-simplifier (name pattern cache)
-  (with-gensyms (cache-var expr old-expr)
-    `(let ((,cache-var ,cache))
-       #'(lambda (,expr ,old-expr)
-           (match ,expr
-             (,pattern
-               (use-cache (,expr ,cache-var)
-                 (,name ,expr ,old-expr))))))))
-
 (defun set-prop-nochange (sym tag value)
   (let ((old-value (get sym tag)))
     (if (or (null old-value) (equal old-value value))
@@ -223,7 +201,8 @@ the last parameter."
                                (step-lst (if (consp step)
                                              (copy-list step)
                                              (list step)))
-                               (splice-pos (member '&rest step-lst)))
+                               (splice-pos (or (member '&rest step-lst)
+                                               (member '_ step-lst))))
                           (if splice-pos
                               (setf (car splice-pos) cur-val)
                               (setf step-lst
