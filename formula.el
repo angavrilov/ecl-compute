@@ -138,6 +138,10 @@ When Formula mode is enabled, code within {} is indented specially."
 (put 'letmatch 'common-lisp-indent-function
      '(6 nil &body))
 
+;; formula parser
+(put 'binary-ops 'common-lisp-indent-function
+     '(4 4 &rest (&whole 2 4 2)))
+
 ;; rewrite engine
 (put 'def-rewrite-pass 'common-lisp-indent-function
      '(4 (&whole 4 &rest 1)
