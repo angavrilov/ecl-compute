@@ -116,7 +116,7 @@
     (build-loop-list name indexes idxlist
                      :min-layer min-layer)))
 
-(defmacro loop-indexes (name idxlist &body code)
+(defmacro do-indexes (name idxlist &body code)
   (let ((indexes      (get name 'mv-indexes)))
     (unless indexes
       (error "Unknown multivalue ~A" name))
