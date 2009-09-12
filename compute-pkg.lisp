@@ -14,7 +14,9 @@
            "*COMPUTE-WITH-CUDA*"
            "DUMP-ARRAY" "RESTORE-ARRAY"
            "ALLOW-DENORMALIZED-FLOATS"
-           "COMPUTE-BATCH")
+           "COMPUTE-BATCH"
+           ;; Re-export from lexical-contexts
+           "DEFLEX")
   (:import-from "STANDARD-CL"
                 "USE-STD-READTABLE" "DO-HASHTABLE"
                 "SPLIT-LIST" "SUM" "WHILE" "UNTIL")

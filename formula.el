@@ -168,6 +168,7 @@ When Formula mode is enabled, code within {} is indented specially."
 (put 'wrap-compute-sync-data 'common-lisp-indent-function 2)
 (put 'letv 'common-lisp-indent-function 1)
 (put 'do-indexes 'common-lisp-indent-function 2)
+(put 'init-processing 'common-lisp-indent-function 0)
 
 ;;; Some tweaks for the indentation of the compute statement.
 (put 'compute 'common-lisp-indent-function
