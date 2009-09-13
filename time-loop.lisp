@@ -43,6 +43,10 @@
 (defvar *work-array-list* nil
   "List of arrays that hold the current state of the iteration.")
 
+(defvar *execute-start-hooks* nil
+  "List of hooks to call before starting actual processing. Each hook
+may be a function or a symbol with a valid symbol-function.")
+
 ;;; Internal variables
 
 (fast-compute:deflex *iter-index* 0
@@ -159,8 +163,24 @@ The code is automatically replicated to all checkpoints."
           (let ((*task-list* tasklist))
             (apply #'execute-task head))))))
 
+(defun call-fun (funval &rest args)
+  (etypecase funval
+    (number   funval)
+    (function (apply funval args))
+    (symbol   (apply (symbol-function funval) args))))
+
 (defun execute-tasks (tasklist)
   "Executes the supplied list of computation tasks."
+  ;; Call hooks
+  (dolist (hook *execute-start-hooks*)
+    (multiple-value-bind (rv flag)
+        (call-fun hook tasklist)
+      (when (or (eql rv :cancel-execute)
+                (eql flag :cancel-execute))
+        (return-from execute-tasks))
+      (when flag
+        (setf tasklist rv))))
+  ;; Run the processing
   (dump-arrays (format nil "~A/INIT" *base-log-path*)
                *init-array-list*)
   (when *init-script-path*
