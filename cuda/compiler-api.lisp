@@ -41,7 +41,7 @@
             offset)))
 
 (defun get-texture-name (spec)
-  (third spec))
+  (coerce (third spec) 'base-string))
 
 (defun get-texture-decl (spec)
   (destructuring-bind
@@ -130,7 +130,8 @@ void ~A(~{~A~^, ~}) {~%~A~%}~%"
              (args (if max-registers
                        (list* :max-registers max-registers texs)
                        texs))
-             (load-spec `(load-kernel '(,name ,compiled-code ,@args)))
+             (load-spec `(load-kernel '(,(coerce name 'base-string)
+                                        ,compiled-code ,@args)))
              (letspec (if textures
                           `((,grp-var (the vector ,load-spec))
                             (,func-var (svref ,grp-var 0)))
