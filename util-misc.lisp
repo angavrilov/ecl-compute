@@ -98,6 +98,8 @@
               (mapcar-save-old #'recurse code)))
            ((type atom _)
              expr)
+           (`(quote ,@_)
+             expr)
            (_
              (mapcar-save-old #'recurse expr))))
        (recurse (expr)

@@ -55,6 +55,8 @@
       expr)
     (`(temporary ,@_)
       expr)
+    (`(,(or 'texture-ref 'texture-ref-int) ',name ,@_)
+      `(multivalue-data ,name))
     (`(tmp-ref ,tmp)
       (recurse-factored #'get-ref-root tmp))
     (`(ptr-deref ,ptr)

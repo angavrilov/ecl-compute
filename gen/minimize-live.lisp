@@ -14,7 +14,8 @@
            (when stmt
              (push stmt assns)))
          (new-temp (expr)
-           (if (atom expr)
+           (if (or (atom expr)
+                   (eql (car expr) 'quote))
                expr
                (let* ((sym (gensym))
                       (clause (list sym expr)))
@@ -31,6 +32,8 @@
               ((type atom _)
                 expr)
               ((ranging-spec _)
+                expr)
+              (`(quote ,@_)
                 expr)
               (`(progn ,@code)
                 (dolist (stmt (butlast code))

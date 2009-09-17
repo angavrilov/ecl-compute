@@ -66,6 +66,8 @@
                   item)
                 ((ranging-spec _)
                   item)
+                (`(quote ,@_)
+                  item)
                 ((type list _)
                   (wrap-let item t))
                 (_
@@ -74,6 +76,8 @@
                    (not (gethash expr high-table)))
               (match item
                 ((ranging-spec _)
+                  item)
+                (`(quote ,@_)
                   item)
                 ((type list _)
                   (wrap-let item nil))
@@ -87,6 +91,7 @@
           (let ((cur-high (gethash old-expr high-table))
                 (cur-low (gethash old-expr low-table)))
             (match expr
+              (`(quote ,@_) expr)
               (`(let* ,assns ,@code)
                 `(let* ,assns ,@(butlast code)
                        ,(wrap-item (car (last code))

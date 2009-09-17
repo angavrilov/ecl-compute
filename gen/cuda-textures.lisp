@@ -27,12 +27,14 @@
              (ofs-lst    (mapcar #'join* idxvals stride-lst))
              (summands   (sort-summands-by-level (cons 0.1 ofs-lst))))
         (if (> idx-cnt 1)
-            `(texture-ref ,(register-ref name 2)
+            `(texture-ref ',name
+                          ,(register-ref name 2)
                           ,(reduce #'join+ summands)
                           ,(reduce #'join+
                                    (sort-summands-by-level
                                     (list 0.1 (car (last idxvals))))))
-            `(texture-ref-int ,(register-ref name 1)
+            `(texture-ref-int ',name
+                              ,(register-ref name 1)
                               ,(car (last idxvals))))))))
 
 (defun use-textures (tex-set expr)

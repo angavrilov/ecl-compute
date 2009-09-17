@@ -141,10 +141,10 @@
   (`(ptr-deref ,ptr)
     (code "*(" ptr ")"))
 
-  (`(texture-ref-int ,name ,idx)
+  (`(texture-ref-int ,_ ,name ,idx)
     (code ("tex1Dfetch(~A, " name) idx ")"))
 
-  (`(texture-ref ,name ,idx1 ,idx2)
+  (`(texture-ref ,_ ,name ,idx1 ,idx2)
     (code ("tex2D(~A, " name) idx2 ", " idx1 ")"))
 
   ((when stmt-p
