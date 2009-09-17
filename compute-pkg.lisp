@@ -9,12 +9,12 @@
            "ALLOC-MULTIVALUES" "WITH-LOCAL-MULTIVALUES"
            "IREF" "ENABLE-EXPR-QUOTES" "DO-INDEXES"
            "*CURRENT-COMPUTE*" "COMPUTE"
-           "LETV" "CALC" "_GRP"
+           "LETV" "CALC" "_GRP" "IFSIGN"
            "SET-COMPUTE-THREAD-COUNT" "PARALLEL-LOOP"
            "*COMPUTE-WITH-CUDA*"
            "DUMP-ARRAY" "RESTORE-ARRAY"
            "ALLOW-DENORMALIZED-FLOATS"
-           "COMPUTE-BATCH"
+           "COMPUTE-BATCH" "DEF-HINT"
            ;; Re-export from lexical-contexts
            "DEFLEX")
   (:import-from "STANDARD-CL"

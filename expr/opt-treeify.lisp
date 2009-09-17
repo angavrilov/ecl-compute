@@ -50,6 +50,8 @@
 
 (defun optimize-tree (expr)
   (pipeline (make-canonic expr)
-    flatten-exprs pull-minus pull-factors split-by-level
+    flatten-exprs pull-minus pull-factors
+    optimize-ifsign expand-ifsign
+    split-by-level
     canonic-expr-unwrap
     treeify))

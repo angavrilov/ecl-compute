@@ -22,7 +22,7 @@
     ((cons (or 'index 'aref 'iref '_grp 'tmp-ref 'quote
                '+ '- '* '/ 'mod 'rem 'floor 'ceiling 'truncate
                'and 'or 'if 'progn
-               'sin 'cos 'exp 'expt 'float-sign
+               'sin 'cos 'exp 'expt 'float-sign 'ifsign
                '> '< '>= '<= '/= '= 'min 'max 'setf 'loop-range) tail)
       (cons-save-old expr (car expr)
                      (mapcar-save-old #'expand-macros tail)))
@@ -39,7 +39,7 @@
                          vars)
         (mapcar-save-old #'expand-macros body))))
     (_
-      (multiple-value-bind (res macro) (macroexpand expr)
+      (multiple-value-bind (res macro) (macroexpand-1 expr)
         (if macro
             (expand-macros res)
             (error "Unknown form in compute: ~A" res))))))

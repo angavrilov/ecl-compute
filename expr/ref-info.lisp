@@ -68,6 +68,18 @@
     (_
       (error "Invalid reference: ~A" expr))))
 
+(def-rewrite-pass trivialize-refs ()
+  (`(multivalue-data ,name ,@_)
+    name)
+  (`(temporary ,name ,@_)
+    name)
+  (`(,(or 'texture-ref 'texture-ref-int) ',name ,@_)
+    name)
+  ((ranging-spec iv)
+    iv)
+  (`(,(or 'tmp-ref 'ptr-deref) ,ptr ,@_)
+    (trivialize-refs (get-ref-root old-expr))))
+
 (defun collect-refs (lvals rvals expr)
   (match expr
     (`(setf ,ref ,rhs)

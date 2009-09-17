@@ -201,3 +201,26 @@
 
 (defun append-loop-item (rloop entry)
   (nconc rloop (list entry)))
+
+;;; Ifsign
+
+(defmacro ifsign (expr neg zero pos)
+  (once-only (expr)
+    `(cond ((= ,expr 0) ,zero)
+           ((< ,expr 0) ,neg)
+           (t ,pos))))
+
+;;; Hints
+
+(defun set-hints (symbol &key sign)
+  (if sign
+      (set-prop-nochange symbol 'sign-hint
+                         (ecase sign
+                           ((:positive :negative :nonzero
+                                       :non-negative :non-positive)
+                            sign)))))
+
+(defmacro def-hint (hint value &rest items)
+  `(eval-when (:compile-toplevel :load-toplevel :execute)
+     ,@(mapcar (lambda (s) `(set-hints ',s ,hint ,value))
+               items)))

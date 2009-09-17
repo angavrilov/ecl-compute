@@ -123,6 +123,9 @@ When Formula mode is enabled, code within {} is indented specially."
 
 (put 'ffi:def-struct 'common-lisp-indent-function 1)
 
+;; Import: alexandria
+(put 'once-only 'common-lisp-indent-function 1)
+
 ;; Import: misc-extensions
 (put 'nlet 'common-lisp-indent-function
      '((&whole 4 &rest (&whole 1 1 1 1 1 1 1 1 1 &rest 1)) &body))

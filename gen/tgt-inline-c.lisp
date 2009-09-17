@@ -131,7 +131,8 @@
              (ref-list    (collect-arefs noiref-expr))
              ;; Apply final transformations
              (res-expr    (pipeline noiref-expr
-                            expand-aref canonic-expr-unwrap
+                            expand-aref expand-ifsign
+                            canonic-expr-unwrap
                             insert-checks)))
         ;; Generate the computation code
         (wrap-compute-sync-data :host ref-list
