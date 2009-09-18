@@ -162,7 +162,8 @@
 
 ;; ifsign rewrite passes
 
-(def-rewrite-pass optimize-ifsign (:canonic t)
+(def-rewrite-pass optimize-ifsign (:canonic t
+                                   :fallback-to flatten-exprs)
   (`(ifsign ,e ,n ,z ,p)
     (with-context (ifsign-expr-filter e)
       (let ((new-expr (process-expr e)))

@@ -147,7 +147,7 @@ When Formula mode is enabled, code within {} is indented specially."
 
 ;; rewrite engine
 (put 'def-rewrite-pass 'common-lisp-indent-function
-     '(4 (&whole 4 &rest 1)
+     '(4 (&whole 4 1 1 1 1 1 1 1 1 &rest 1)
          &rest (&whole 2 2 2 2 2 2 2 2 2 &rest 2)))
 
 ;; threads

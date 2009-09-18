@@ -120,6 +120,8 @@ Inside the rules the following expressions can be used:
            (old-expr-var  (intern "OLD-EXPR"))
            (redo-name     (intern "REDO"))
            (fallback-name (intern "FALLBACK"))
+           (fallback-pass (ensure-car fallback-to))
+           (fallback-args (cdr (ensure-list fallback-to)))
            (norm-params   (get-normal-params step-params))
            (unwrap-expr   (if unwrap-args
                               `(canonic-unwrap-all ,expr-var)
@@ -135,8 +137,9 @@ Inside the rules the following expressions can be used:
                         `(,',step-name ,ev ,',old-expr-var))
                       (,fallback-name (&optional ev)
                         ,(if fallback-to
-                             ``(,',(rewrite-pass-step-name fallback-to)
-                                   ,(or ev ',expr-var))
+                             `(list* ',(rewrite-pass-step-name fallback-pass)
+                                     (or ev ',expr-var) ',old-expr-var
+                                     ',fallback-args)
                              `(declare (ignore ev)))))
              (match ,unwrap-expr
                ,@patterns
