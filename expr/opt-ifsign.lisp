@@ -117,6 +117,7 @@
 
 (defcontext ifsign-expr-filter (full-expr)
   (deflex top-negate nil)
+  (deflex eliminated-factors nil)
 
   (defun toggle-negate ()
     (setf top-negate (not top-negate)))
@@ -138,15 +139,11 @@
         (let ((info (get-sign-info item)))
           (cond
             ((sign-info-strictly-positive info)
-             (format t "Eliminating positive factor in ifsign: ~A~%"
-                     (trivialize-refs item)))
+             (push item eliminated-factors))
             ((sign-info-strictly-negative info)
              (toggle-negate)
-             (format t "Eliminating negative factor in ifsign: ~A~%"
-                     (trivialize-refs item)))
+             (push item eliminated-factors))
             (t
-             (format t "Keeping factor with unknown sign: ~A~%"
-                     (trivialize-refs item))
              (push item new-items)))))
       (cond
         ((null new-items)
@@ -172,8 +169,18 @@
         (when top-negate
           (rotatef n p))
         (if (numberp new-expr)
-            (ifsign new-expr n z p)
-            `(ifsign ,new-expr ,n ,z ,p))))))
+            (progn
+              (format t "Sign fully resolved as ~A: ~A~%"
+                      (if top-negate (- new-expr) new-expr)
+                      (trivialize-refs e))
+              (ifsign new-expr n z p))
+            (progn
+              (when eliminated-factors
+                (format t "Eliminated fixed-sign factors:~{ ~A~}~%"
+                        (mapcar #'trivialize-refs eliminated-factors)))
+              (format t "Keeping ifsign condition: ~A~%"
+                      (trivialize-refs new-expr))
+              `(ifsign ,new-expr ,n ,z ,p)))))))
 
 (def-rewrite-pass expand-ifsign (:canonic t)
   (`(ifsign ,e ,n ,z ,p)

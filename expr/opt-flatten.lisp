@@ -23,7 +23,9 @@
     (if (empty? common)
         items
         (progn
-          (format t "Cancelled out: ~A~%" common)
+          (format t "Cancelled out:~{ ~S~}~%"
+                  (mapcar #f(canonic-in trivialize-refs _)
+                          (convert 'list common)))
           (bag-difference items common)))))
 
 ;;; Collect terms while combining numbers and removing redundant ones.
@@ -36,7 +38,8 @@
           (adjoinf items (make-canonic item))))
     (if (and null-value value (= value null-value))
         (progn
-          (format t "Reduced to ~A: ~A~%" null-value exprs)
+          (format t "Reduced to ~A:~{ ~S~}~%" null-value
+                  (mapcar #'trivialize-refs exprs))
           null-value)
         (let ((items (cancel-items items inv-op)))
           (when (and value (not (= value zero)))
