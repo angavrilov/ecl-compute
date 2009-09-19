@@ -158,12 +158,11 @@
 ;; Wrapper
 
 (defun split-by-cse (expr)
-  (let ((expr-table (make-hash-table))
+  (let ((expr-table (count-subexprs (canonic-expr-unwrap expr)))
         (add-list   nil)
         (mul-list   nil)
         (fix-table  (make-hash-table)))
     ;; Collect additions and multiplications
-    (count-subexprs-rec (canonic-expr-unwrap expr) expr-table)
     (maphash (lambda (sub cnt)
                (match sub
                  (`(+ ,@_)
