@@ -36,6 +36,9 @@
     (recurse expr)
     table))
 
+
+;; Determine expressions to factor off
+
 (defun build-factor-table (cnt-table pull-symbols)
   (let ((fct-table (make-hash-table :test #'equal)))
     (maphash #'(lambda (expr cnt)
@@ -77,94 +80,119 @@
              fct-table)
     fct-table))
 
-(defun factor-vars-dumb (expr fct-table cur-level var-list nil-list)
-  (if (or (atom expr) (find (car expr) '(index)))
-      expr
-      (mapcar-save-old #'(lambda (x)
-                           (factor-vars-rec x fct-table
-                                            cur-level var-list nil-list))
-                       expr)))
 
-(defun factor-vars-rec (expr fct-table cur-level var-list nil-list)
-  (match expr
-    (`(declare ,@_) expr)
-    (`(quote ,@_) expr)
-    (`(loop-range ,range ,@body)
-      (let* ((range-info (ranging-info range))
-             (level (range-loop-level range-info))
-             (level-gap (if cur-level (- cur-level level 1) 0))
-             (pad-list (loop for i from 1 to level-gap collect nil))
-             (vlist (cons nil (nconc pad-list var-list)))
-             (nbody (factor-vars-rec body fct-table level vlist nil-list)))
-        (unless (or (null cur-level) (< level cur-level))
-          (error "Invalid loop nesting: ~A at level ~A" expr cur-level))
-        ;; Factor the loop range args
-        (setf (range-min range-info)
-              (factor-vars-rec (range-min range-info)
-                               fct-table cur-level var-list nil-list))
-        (setf (range-max range-info)
-              (factor-vars-rec (range-max range-info)
-                               fct-table cur-level var-list nil-list))
-        ;; Pop the substitutions
-        (dolist (subs (car vlist))
-          (setf (gethash
-                 (get (first subs) 'full-expr)
-                 fct-table)
-                t))
-        ;; Verify that the gap is empty
-        (loop for i from 1 to level-gap
-           do (unless (null (nth i vlist))
-                (error "Invalid loop nesting: ~A of level ~A in gap ~A to ~A"
-                       (nth i vlist) (+ level i) level cur-level)))
-        ;; Wrap with let if needed
-        (if (car vlist)
-            `(loop-range ,range (let* ,(nreverse (car vlist)) ,@nbody))
-            `(loop-range ,range ,@nbody))))
-    (`(setf ,target ,val)
-      `(setf ,(factor-vars-dumb target fct-table cur-level var-list nil-list)
-             ,(optimize-tree
-               (factor-vars-rec val fct-table cur-level var-list nil-list))))
-    (`(safety-check ,checks ,@body)
-      (cons-save-old expr 'safety-check
-                     (cons-save-old (cdr expr)
-                                    (mapcar-save-old
-                                     #'(lambda (check)
-                                         (cons-save-old check
-                                                        (factor-vars-rec (car check)
-                                                                         fct-table cur-level var-list nil-list)
-                                                        (cdr check)))
-                                     checks)
-                                    (factor-vars-dumb body
-                                                      fct-table cur-level var-list nil-list))))
-    (_
-      (let ((factor (gethash expr fct-table)))
-        (cond
-          ((eql factor nil)
-           (factor-vars-dumb expr fct-table cur-level var-list nil-list))
-          ((eql factor t)
-           (let* ((sym   (get-new-symbol))
-                  (nexpr (factor-vars-dumb expr fct-table cur-level var-list nil-list))
-                  (level (min-loop-level expr))
-                  (expr-pair (list sym (optimize-tree nexpr))))
-             (setf (get sym 'let-clause) expr-pair)
-             (setf (get sym 'full-expr) expr)
-             (setf (get sym 'loop-level) level)
-             (cond
-               ((eql level nil)
-                (push expr-pair (car nil-list)))
-               ((and cur-level (>= level cur-level))
-                (push expr-pair (nth (- level cur-level) var-list)))
-               (t
-                (error "Invalid level ~A at current ~A" level cur-level)))
-             (setf (gethash expr fct-table) sym)))
-          (t  factor))))))
+;; Factorization engine
+
+(defcontext factor-vars-engine (fct-table)
+  (deflex replace-table (make-hash-table
+                         :test (hash-table-test fct-table)))
+
+  ;; Loop level stack
+  (deflex loop-stack nil)
+  (deflex loop-var-map (make-hash-table))
+
+  (defun current-level ()
+    (car loop-stack))
+
+  (defun push-level (level)
+    (unless (or (null loop-stack)
+                (level< level (current-level)))
+      (error "Invalid loop nesting: ~A at level ~A"
+             level (current-level)))
+    (assert (null (gethash level loop-var-map)))
+    (push level loop-stack))
+
+  (defun pop-level (level)
+    (assert (eql (pop loop-stack) level))
+    (prog1
+        (gethash level loop-var-map)
+      (remhash level loop-var-map)
+      (let ((junk (set-difference
+                   (hash-table-keys loop-var-map) loop-stack)))
+        (when junk
+          (error "Invalid loop nesting:~{ ~A~} in gap at level ~A"
+                 junk (current-level))))))
+
+  (defun recurse-level (level exprs)
+    (push-level level)
+    (values (mapcar-save-old #'factor-rec exprs)
+            (pop-level level)))
+
+  ;; Factorization
+  (defun factor-dumb (expr)
+    (if (or (atom expr) (find (car expr) '(index)))
+        expr
+        (mapcar-save-old #'factor-rec expr)))
+
+  (defun split-off (expr)
+    (let* ((sym       (get-new-symbol))
+           (nexpr     (factor-dumb expr))
+           (level     (min-loop-level expr))
+           (expr-pair (list sym (optimize-tree nexpr))))
+      (setf (get sym 'let-clause) expr-pair)
+      (setf (get sym 'full-expr) expr)
+      (setf (get sym 'loop-level) level)
+      (when (level< level (current-level))
+        (error "Invalid level ~A at current ~A"
+               level (current-level)))
+      (push expr-pair (gethash level loop-var-map))
+      (setf (gethash expr replace-table) sym)))
+
+  (defun factor-rec (expr)
+    (match expr
+      (`(declare ,@_) expr)
+      (`(quote ,@_) expr)
+
+      (`(loop-range ,range ,@body)
+        (let* ((range-info (ranging-info range))
+               (level      (range-loop-level range-info)))
+          (multiple-value-bind (nbody var-list)
+              (recurse-level level body)
+            ;; Factor the loop range args
+            (setf (range-min range-info)
+                  (factor-rec (range-min range-info)))
+            (setf (range-max range-info)
+                  (factor-rec (range-max range-info)))
+            ;; Pop the substitutions
+            (dolist (subs var-list)
+              (remhash (get (first subs) 'full-expr) replace-table))
+            ;; Wrap with let if needed
+            (if var-list
+                `(loop-range ,range (let* ,(nreverse var-list) ,@nbody))
+                `(loop-range ,range ,@nbody)))))
+
+      (`(setf ,target ,val)
+        `(setf ,(factor-dumb target) ,(optimize-tree (factor-rec val))))
+
+      (`(safety-check ,checks ,@body)
+        (list*-save-old expr
+                        'safety-check
+                        (mapcar-save-old (lambda (check)
+                                           (cons-save-old check
+                                                          (factor-rec (car check))
+                                                          (cdr check)))
+                                         checks)
+                        (mapcar-save-old #'factor-rec body)))
+
+      (_
+        (or (gethash expr replace-table)
+            (if (gethash expr fct-table)
+                (split-off expr)
+                (factor-dumb expr)))))))
 
 (defun factor-vars (expr fct-table)
-  (let* ((nil-list (list nil))
-         (nexpr    (factor-vars-rec expr fct-table nil nil nil-list)))
-    (if (car nil-list)
-        `(let* ,(nreverse (car nil-list)) ,nexpr)
-        nexpr)))
+  (with-context (factor-vars-engine fct-table)
+    (multiple-value-bind (body nil-list)
+        (recurse-level nil (list expr))
+      (if nil-list
+          `(let* ,(nreverse nil-list) ,@body)
+          (car body)))))
+
+
+;; Code motion wrapper
 
 (defun code-motion (expr &key pull-symbols)
-  (factor-vars expr (build-factor-table (count-subexprs expr :test #'equal) pull-symbols)))
+  (pipeline expr
+    (count-subexprs _ :test #'equal)
+    (build-factor-table _ pull-symbols)
+    (factor-vars expr _)))
