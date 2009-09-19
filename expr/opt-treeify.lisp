@@ -52,6 +52,6 @@
   (pipeline (make-canonic expr)
     flatten-exprs pull-minus pull-factors
     optimize-ifsign expand-ifsign
-    split-by-level
+    split-by-level split-by-cse
     canonic-expr-unwrap
     treeify))

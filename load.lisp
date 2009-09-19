@@ -40,6 +40,7 @@
               "expr/opt-flatten.lisp"
               "expr/opt-pullexpr.lisp"
               "expr/opt-ifsign.lisp"
+              "expr/opt-cse.lisp"
               "expr/opt-treeify.lisp"
               "expr/let-utils.lisp"
               "expr/cse.lisp"

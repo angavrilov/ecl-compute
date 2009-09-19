@@ -141,6 +141,9 @@ When Formula mode is enabled, code within {} is indented specially."
 (put 'letmatch 'common-lisp-indent-function
      '(6 nil &body))
 
+(put 'while 'common-lisp-indent-function 1)
+(put 'until 'common-lisp-indent-function 1)
+
 ;; formula parser
 (put 'binary-ops 'common-lisp-indent-function
      '(4 4 &rest (&whole 2 4 2)))

@@ -77,6 +77,7 @@
   (match expr
     (1 1)
     (`(/ ,x) x)
+    (`(- (/ ,x)) `(- ,x))
     (x `(/ ,x))))
 
 (defun collect* (args)
