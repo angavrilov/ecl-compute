@@ -108,7 +108,7 @@
                        ,(wrap-item rhs cur-high cur-low)))
 
               ;; (a*b - c) -> (a*b + (-c)) if c is split
-              ((when (and cur-low cur-high
+              ((when (and *treeify-madd* cur-low cur-high
                           (gethash emul high-table)
                           (not (gethash (unwrap-factored rt) high-table)))
                  `(- ,(as emul `(* ,_ ,_)) ,rt))
@@ -117,7 +117,7 @@
                                nil)))
 
               ;; 1/(c - a*b) -> -1/(a*b+(-c)) if c is split
-              ((when (and cur-low cur-high
+              ((when (and *treeify-madd* cur-low cur-high
                           (gethash emul high-table)
                           (not (gethash (unwrap-factored rt) high-table)))
                  `(/ (- ,rt ,(as emul `(* ,_ ,_)))))
