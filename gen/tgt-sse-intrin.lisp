@@ -45,8 +45,7 @@
 (def-form-compiler compile-sse-temps (form)
   (`(setf-tmp ,var ,expr)
     (let ((var-type (gethash expr *cg-type-table*))
-          (var-name (temp-symbol-name var))
-          (var-fdiv (or (get var 'fdiv-users) 0)))
+          (var-name (temp-symbol-name var)))
       (text "~A ~A = ("
             (case var-type
               (float "__m128")
@@ -64,10 +63,7 @@
          (text (compile-sse-ptr expr)))
         (t
          (recurse expr)))
-      (text ");~%")
-      (when (> var-fdiv 1)
-        (text "__m128 ~A_fdiv = _mm_div_ps(_mm_set1_ps(1.0),~A);~%"
-              var-name var-name)))))
+      (text ");~%"))))
 
 (defparameter *cg-sse-extvars* nil)
 (defparameter *cg-sse-auxvars* nil)
@@ -109,18 +105,6 @@
         (text "_mm_add_ps(_mm_set1_ps(~A),_mm_setr_ps(0,1,2,3))"
               (symbol-name v))
         (text (ref-sse-extvar (symbol-name v)))))
-
-  ((when (> (or (get sym 'fdiv-users) 0) 1)
-     `(/ ,x ,(type symbol sym)))
-    (if (and (numberp x)
-             (= x 1))
-        (code "(")
-        (code "_mm_mul_ps(" x ","))
-    (let ((fd-name (format nil "~A_fdiv" (temp-symbol-name sym))))
-      (if (eql (get sym 'loop-level) 0)
-          (text fd-name)
-          (text (ref-sse-extvar fd-name))))
-    (code ")"))
 
   (`(/ ,x ,(type number num))
     (code "_mm_mul_ps(" x (",_mm_set1_ps(1.0/~A))" num)))

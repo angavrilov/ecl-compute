@@ -171,12 +171,6 @@
                             (rtype (if (find 'float subtypes) 'float 'integer)))
                        (dolist (arg (cdr sub))
                          (recurse-factored #'propagate-upper-type arg rtype))))
-                   ;; Mark float divisions
-                   (when (and (consp sub)
-                              (eql (first sub) '/)
-                              (symbolp (third sub))
-                              (get (third sub) 'let-clause))
-                     (incf-nil (get (third sub) 'fdiv-users)))
                    ;; Help resolve general arithmetics
                    (when (and type (not upper))
                      (propagate-upper-type sub type))))

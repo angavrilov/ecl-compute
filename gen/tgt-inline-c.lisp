@@ -131,7 +131,7 @@
              (ref-list    (collect-arefs noiref-expr))
              ;; Apply final transformations
              (res-expr    (pipeline noiref-expr
-                            expand-aref expand-ifsign
+                            expand-aref preoptimize-tree
                             canonic-expr-unwrap
                             insert-checks)))
         ;; Generate the computation code

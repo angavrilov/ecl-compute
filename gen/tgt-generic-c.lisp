@@ -55,13 +55,6 @@
         (text (symbol-name v))
         (recurse v)))
 
-  ((when (and (eql form-type 'float)
-              (> (or (get sym 'fdiv-users) 0) 1))
-     `(/ ,x ,(type symbol sym)))
-    (unless (and (numberp x) (= x 1))
-      (code "(" x ")*"))
-    (text "~A_fdiv" (temp-symbol-name sym)))
-
   ((when (eql form-type 'float)
      `(/ ,x))
     (code "1.0f/(" x ")"))
@@ -177,8 +170,7 @@
 
   (`(setf-tmp ,var ,expr)
     (let ((var-type (gethash expr *cg-type-table*))
-          (var-name (temp-symbol-name var))
-          (var-fdiv (or (get var 'fdiv-users) 0)))
+          (var-name (temp-symbol-name var)))
       (text "~A ~A = ("
             (match var-type
               ('array "cl_object")
@@ -190,7 +182,4 @@
                         var-type expr *cg-full-expr*)))
             var-name)
       (recurse expr)
-      (text ");~%")
-      (when (> var-fdiv 1)
-        (text "float ~A_fdiv = (1.0f/~A);~%"
-              var-name var-name)))))
+      (text ");~%"))))

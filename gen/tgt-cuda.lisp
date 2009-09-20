@@ -55,33 +55,20 @@
   ((when (and (hash-table-p base-struct-p)
               (gethash var base-struct-p))
      `(setf-tmp ,var ,expr))
-    (let ((var-name (temp-symbol-name var))
-          (var-fdiv (or (get var 'fdiv-users) 0)))
+    (let ((var-name (temp-symbol-name var)))
       (text "__shared__ ~A ~A;~%"
             (get-cuda-type-string expr) var-name)
-      (push `(setf ,var ,expr) *cg-shared-setfs*)
-      (when (> var-fdiv 1)
-        (let ((sym (make-symbol
-                    (format nil "~A_fdiv" var)))
-              (dexpr `(/ ,var)))
-          (setf (get sym 'let-clause) t)
-          (setf (gethash dexpr *cg-type-table*) 'float)
-          (text "__shared__ float ~A_fdiv;~%" var-name)
-          (push `(setf ,sym ,dexpr) *cg-shared-setfs*)))))
+      (push `(setf ,var ,expr) *cg-shared-setfs*)))
 
   ((when base-struct-p
      `(,(or 'setf 'setf-tmp 'inline-strs) ,@_))
     (push form *cg-shared-setfs*))
 
   (`(setf-tmp ,var ,expr)
-    (let ((var-name (temp-symbol-name var))
-          (var-fdiv (or (get var 'fdiv-users) 0)))
+    (let ((var-name (temp-symbol-name var)))
       (text "~A ~A = ("
             (get-cuda-type-string expr) var-name)
-      (code expr ");~%")
-      (when (> var-fdiv 1)
-        (text "float ~A_fdiv = (1.0f/~A);~%"
-              var-name var-name))))
+      (code expr ");~%")))
 
   ((when base-struct-p
      `(progn ,@body))
@@ -341,10 +328,7 @@
                                          'texture-ref-int)))
                  `(setf-tmp ,var ,expr))
                 (let ((name (temp-symbol-name var)))
-                  (ref-arg name expr)
-                  (when (> (or (get var 'fdiv-users) 0) 1)
-                    (ref-arg (format nil "~A_fdiv" name)
-                             `(/ 1.0 ,expr) 'float))))
+                  (ref-arg name expr)))
               ;; Loops switch to the next mode
               (`(loop-range ,@_)
                 (when top-found
@@ -416,7 +400,8 @@
                  (tex-expr tex-list (use-textures (convert 'set textures) ltemp-expr))
                  ;; Apply final transformations
                  ((res-expr (pipeline tex-expr
-                              expand-aref optimize-tree
+                              expand-aref preoptimize-tree
+                              canonic-expr-unwrap
                               (code-motion _ :pull-symbols t)))
                   ;; Inner check levels
                   (c-levels (remove nil (get-check-level-set)))))
