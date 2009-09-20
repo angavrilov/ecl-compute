@@ -5,8 +5,6 @@
 ;; This is faster, but x/y when abs(y) > 8.5e+37 produces 0
 (defvar *cuda-use-fast-div* nil)
 
-(defvar *realign-cuda-reads* nil)
-
 (defun replace-dim (expr old-expr)
   (match expr
     (`(arr-dim (multivalue-data ,mv ,@_) ,idx ,rank)
@@ -118,7 +116,6 @@
                        cnt)))
         (args  ())
         (top-found nil)
-        (needs-scratch nil)
         (dims  ())
         (temp-handler (if spill-to-shared
                           #'compile-shared-temps
@@ -143,31 +140,7 @@
                  (x
                    (error "Invalid array expression: ~A" x)))))
       (let*
-          ((align-compiler
-            (form-compiler (form stmt-p)
-              ((type symbol sym)
-                (text (temp-symbol-name sym)))
-              ((when *realign-cuda-reads*
-                 `(ptr-deref ,ptr))
-                (let* ((istep (get-inner-step ptr))
-                       (delta (get-inner-delta ptr))
-                       (misalignment (mod delta 16)))
-                  (if (or (not (eql istep 1))
-                          (eql misalignment 0))
-                      (code "*(" ptr ")")
-                      (progn
-                        (setf needs-scratch t)
-                        (text "(__scratch_ptr=(")
-                        (recurse ptr)
-                        (text "),~%(threadIdx.x<~A?" misalignment)
-                        (text "__scratch[threadIdx.x+~A]=*(__scratch_ptr+~A):"
-                              (- block-dim misalignment) (- block-dim misalignment))
-                        (text "__scratch[threadIdx.x-~A]=*(__scratch_ptr-~A)),~%"
-                              misalignment misalignment)
-                        (text "__syncthreads(),__scratch[threadIdx.x])")))))
-              (`(setf (ptr-deref ,ptr) ,expr)
-                (code "*(" ptr ")=(" expr ")" (:when stmt-p ";~%")))))
-           (block-compiler
+          ((block-compiler
             (form-compiler (form)
               ((type symbol sym)
                 (text (temp-symbol-name sym)))
@@ -198,14 +171,7 @@
                           (make-flattened-loop `(progn ,@body) *cg-type-table*)
                         (text "/*preamble*/~%")
                         (dolist (stmt preamble)
-                          (recurse stmt
-                                   :use-stack
-                                   (list align-compiler
-                                         #'compile-generic-cuda
-                                         #'compile-generic-c
-                                         #'compile-generic
-                                         #'compile-c-inline-temps)
-                                   :stmt-p t))
+                          (recurse stmt :stmt-p t))
                         (dolist (var escape-vars)
                           (text "~A ~A;~%"
                                 (ecase (get-factored-cg-type var)
@@ -224,27 +190,13 @@
                           (text "}~%__syncthreads();~%}}~%"))
                         (text "/*finalize*/~%")
                         (dolist (stmt final)
-                          (recurse stmt
-                                   :use-stack
-                                   (list align-compiler
-                                         #'compile-generic-cuda
-                                         #'compile-generic-c
-                                         #'compile-generic
-                                         #'compile-c-inline-temps)
-                                   :stmt-p t)))
+                          (recurse stmt :stmt-p t)))
                       (let* ((flattened (flatten-inner-loop
                                          `(progn ,@body) *cg-type-table*
                                          :split-all t))
                              (optimized (minimize-live-vars flattened)))
                         (dolist (stmt optimized)
-                          (recurse stmt
-                                   :use-stack
-                                   (list align-compiler
-                                         #'compile-generic-cuda
-                                         #'compile-generic-c
-                                         #'compile-generic
-                                         #'compile-c-inline-temps)
-                                   :stmt-p t))))
+                          (recurse stmt :stmt-p t))))
                   (text "}}~%")))
               ((when (> level 0)
                  `(loop-range
@@ -390,10 +342,6 @@
                                       full_expr
                                       :stmt-p t
                                       :base-struct-p t)))
-        (when needs-scratch
-          (setf code
-                (format nil "float *__scratch_ptr;~%__shared__ float __scratch[~A];~%~A"
-                        block-dim code)))
         `(cuda:kernel ,(nreverse args)
                       ,code
                       ,@kernel-flags
