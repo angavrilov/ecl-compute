@@ -2,6 +2,9 @@
 
 (in-package fast-compute)
 
+;; This is faster, but x/y when abs(y) > 8.5e+37 produces 0
+(defvar *cuda-use-fast-div* nil)
+
 (defvar *realign-cuda-reads* nil)
 
 (defun replace-dim (expr old-expr)
@@ -16,6 +19,31 @@
                             ,idx)))
     (`(arr-dim ,@_)
       (error "Bad dimension: ~A" expr))))
+
+(defun fast-div-p (form-type dv)
+  (and *cuda-use-fast-div*
+       (eql form-type 'float)
+       (not (numberp dv))))
+
+(def-form-compiler compile-generic-cuda (form form-type)
+  (`(texture-ref-int ,_ ,name ,idx)
+    (code ("tex1Dfetch(~A, " name) idx ")"))
+
+  (`(texture-ref ,_ ,name ,idx1 ,idx2)
+    (code ("tex2D(~A, " name) idx2 ", " idx1 ")"))
+
+  ((when (fast-div-p form-type x)
+     (or `(- (/ ,x)) `(/ (- ,x))))
+    (code "__fdividef(-1.0f, " x ")"))
+
+  ((when (fast-div-p form-type x)
+     `(/ ,x))
+    (code "__fdividef(1.0f, " x ")"))
+
+  ((when (fast-div-p form-type y)
+     `(/ ,x ,y))
+    (code "__fdividef(" x ", " y ")")))
+
 
 (defvar *cg-shared-setfs* nil)
 
@@ -173,6 +201,7 @@
                           (recurse stmt
                                    :use-stack
                                    (list align-compiler
+                                         #'compile-generic-cuda
                                          #'compile-generic-c
                                          #'compile-generic
                                          #'compile-c-inline-temps)
@@ -198,6 +227,7 @@
                           (recurse stmt
                                    :use-stack
                                    (list align-compiler
+                                         #'compile-generic-cuda
                                          #'compile-generic-c
                                          #'compile-generic
                                          #'compile-c-inline-temps)
@@ -210,6 +240,7 @@
                           (recurse stmt
                                    :use-stack
                                    (list align-compiler
+                                         #'compile-generic-cuda
                                          #'compile-generic-c
                                          #'compile-generic
                                          #'compile-c-inline-temps)
@@ -284,6 +315,7 @@
                 (recurse form
                          :use-stack
                          (list block-compiler
+                               #'compile-generic-cuda
                                #'compile-generic-c
                                #'compile-generic
                                #'compile-c-inline-temps)
@@ -339,6 +371,7 @@
                          (list grid-compiler
                                arr-arg-compiler
                                temp-handler
+                               #'compile-generic-cuda
                                #'compile-generic-c
                                #'compile-generic
                                #'compile-c-inline-temps)
@@ -351,6 +384,7 @@
            (code (call-form-compilers (list args-compiler
                                             arr-arg-compiler
                                             temp-handler
+                                            #'compile-generic-cuda
                                             #'compile-generic-c
                                             #'compile-generic)
                                       full_expr
@@ -375,7 +409,8 @@
                             (max-registers nil)
                             (textures nil)
                             (spill-to-shared t)
-                            (treeify-madd *treeify-madd*))
+                            (treeify-madd *treeify-madd*)
+                            (use-fast-div *cuda-use-fast-div*))
       cuda-flags
     (let* ((*current-compute* original)
            (*simplify-cache* (make-hash-table))
@@ -385,6 +420,7 @@
            (*consistency-checks* (make-hash-table :test #'equal))
            (*loop-cluster-size* block-size)
            (*treeify-madd* treeify-madd)
+           (*cuda-use-fast-div* use-fast-div)
            (*align-cluster* 16))
       (multiple-value-bind (loop-expr loop-list range-list)
           (make-compute-loops name idxspec expr with
