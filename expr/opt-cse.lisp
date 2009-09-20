@@ -142,11 +142,11 @@
 
   ;; Output mapping
   (defun make-replace-hash (&optional (hash (make-hash-table)))
-    (maphash (lambda (expr bag)
-               (let ((new-expr (bag-to-expr bag)))
-                 (unless (eql expr new-expr)
-                   (setf (gethash expr hash) new-expr))))
-             work-bags)
+    ;; Walk the work table in a stable order
+    (do-set (expr (convert 'set (hash-table-keys work-bags)))
+      (let ((new-expr (bag-to-expr (gethash expr work-bags))))
+        (unless (eql expr new-expr)
+          (setf (gethash expr hash) new-expr))))
     hash)
 
   (defun process-all (exprs repl-table)
