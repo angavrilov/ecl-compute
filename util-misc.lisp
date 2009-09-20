@@ -12,6 +12,12 @@
    (apply #'concatenate 'string
           (mapcar #'unsymbol items))))
 
+(defmacro removef-least (bag)
+  (with-gensyms (lv)
+    `(let ((,lv (least ,bag)))
+       (removef ,bag ,lv)
+       ,lv)))
+
 (defun force-integer (expr)
   (if (integerp expr) expr nil))
 

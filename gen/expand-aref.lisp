@@ -33,10 +33,11 @@
                           (mapcar #'min-loop-level var-ofs-items))
                          #'level>))
          (ofs-groups (mapcar #'(lambda (lvl)
-                                 (treeify
-                                  `(+ ,@(remove lvl var-ofs-items
-                                                :test-not #'eql
-                                                :key #'min-loop-level))))
+                                 (pipeline
+                                     `(+ ,@(remove lvl var-ofs-items
+                                                   :test-not #'eql
+                                                   :key #'min-loop-level))
+                                   make-canonic treeify canonic-expr-unwrap))
                              levels)))
     (nconc ofs-groups num-ofs-items)))
 

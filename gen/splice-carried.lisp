@@ -2,6 +2,8 @@
 
 (in-package fast-compute)
 
+(use-std-readtable)
+
 (defun mark-carried-low (expr low-table crefs carried-p)
   (multiple-value-bind (cur-carried found)
       (gethash expr low-table)
@@ -104,10 +106,27 @@
               (`(setf ,lhs ,rhs)
                 `(setf ,lhs
                        ,(wrap-item rhs cur-high cur-low)))
+
+              ;; (a*b - c) -> (a*b + (-c)) if c is split
+              ((when (and cur-low cur-high
+                          (gethash emul high-table)
+                          (not (gethash (unwrap-factored rt) high-table)))
+                 `(- ,(as emul `(* ,_ ,_)) ,rt))
+                `(+ ,emul
+                    ,(wrap-let (copy-tags (unwrap-factored rt) `(- ,rt))
+                               nil)))
+
+              ;; 1/(c - a*b) -> -1/(a*b+(-c)) if c is split
+              ((when (and cur-low cur-high
+                          (gethash emul high-table)
+                          (not (gethash (unwrap-factored rt) high-table)))
+                 `(/ (- ,rt ,(as emul `(* ,_ ,_)))))
+                `(/ (- (+ ,emul
+                          ,(wrap-let (copy-tags (unwrap-factored rt) `(- ,rt))
+                                     nil)))))
+
               ((type list _)
-                (mapcar-save-old #'(lambda (item)
-                                     (wrap-item item cur-high cur-low))
-                                 expr))
+                (mapcar-save-old #f(wrap-item _ cur-high cur-low) expr))
               (_
                 expr)))))
      expr)))

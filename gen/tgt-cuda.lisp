@@ -374,7 +374,8 @@
                             (block-size 128)
                             (max-registers nil)
                             (textures nil)
-                            (spill-to-shared t))
+                            (spill-to-shared t)
+                            (treeify-madd *treeify-madd*))
       cuda-flags
     (let* ((*current-compute* original)
            (*simplify-cache* (make-hash-table))
@@ -383,6 +384,7 @@
            (*canonify-cache* (make-canonify-cache))
            (*consistency-checks* (make-hash-table :test #'equal))
            (*loop-cluster-size* block-size)
+           (*treeify-madd* treeify-madd)
            (*align-cluster* 16))
       (multiple-value-bind (loop-expr loop-list range-list)
           (make-compute-loops name idxspec expr with

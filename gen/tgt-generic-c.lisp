@@ -56,6 +56,10 @@
         (recurse v)))
 
   ((when (eql form-type 'float)
+     (or `(- (/ ,x)) `(/ (- ,x))))
+    (code "-1.0f/(" x ")"))
+
+  ((when (eql form-type 'float)
      `(/ ,x))
     (code "1.0f/(" x ")"))
 
