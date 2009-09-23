@@ -45,17 +45,17 @@
 
 (defun get-texture-decl (spec)
   (destructuring-bind
-        (vtype dim name arg) spec
+        (vtype dim name arg &key row-shift row-stride) spec
     (assert (eql vtype :float))
     (assert (or (eql dim 1) (eql dim 2)))
     (format nil "texture<float,~A> ~A" dim name)))
 
 (defun get-texture-assn (fun var idx spec)
   (destructuring-bind
-        (vtype dim name arg) spec
+        (vtype dim name arg &key row-shift row-stride) spec
     (ecase dim
-      (1 `(param-set-texture-1d ,fun (svref ,var ,idx) ,arg))
-      (2 `(param-set-texture-2d ,fun (svref ,var ,idx) ,arg)))))
+      (1 `(param-set-texture-1d ,fun (svref ,var ,idx) ,arg ,row-shift))
+      (2 `(param-set-texture-2d ,fun (svref ,var ,idx) ,arg ,row-shift ,row-stride)))))
 
 (defparameter *compiled-cache* (make-hash-table :test #'equal))
 

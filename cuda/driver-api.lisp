@@ -420,7 +420,7 @@
          (dims      (reverse (array-dimensions arr)))
          (width     (* item-size (car dims)))
          (height    (reduce #'* (cdr dims))))
-    (create-linear-buffer width height :pitched item-size)))
+    (create-linear-buffer width height :pitched 16)))
 
 (defun copy-linear-for-array (buffer arr &key from-device)
   (check-ffi-type buffer linear-buffer)
@@ -683,12 +683,13 @@
         }
     }"))
 
-(defun param-set-texture-1d (fhandle thandle value)
+(defun param-set-texture-1d (fhandle thandle value row-skip)
   (declare (optimize (safety 0) (debug 0)))
   (ffi:c-inline
       (fhandle thandle value
-       'function-pointer 'texture-pointer 'linear-buffer)
-      (:object :object :object :object :object :object)
+       'function-pointer 'texture-pointer 'linear-buffer
+       row-skip)
+      (:object :object :object :object :object :object :object)
       :void
     "{
         if (!FOREIGN_WITH_TAGP(#0,#3)) FEerror(\"Not a function handle\",1,#0);
@@ -698,20 +699,28 @@
             CUfunction fun = #0->foreign.data;
             CUtexref tex = #1->foreign.data;
             LinearBuffer *pbuf = #2->foreign.data;
-            if (!pbuf->device_ptr) FEerror(\"Linear buffer not allocated.\",0);
-            if (pbuf->height != 1) FEerror(\"2D linear buffer in 1D texture.\",0);
+            CUdeviceptr dptr = pbuf->device_ptr;
+            if (!dptr) FEerror(\"Linear buffer not allocated.\",0);
+            if (#6 != Cnil) {
+              cl_index ofs = fixnnint(#6);
+              if (ofs >= pbuf->height) FEerror(\"Texture row index out of bounds: ~A\",1,#6);
+              dptr += pbuf->pitch*ofs;
+            } else {
+              if (pbuf->height != 1) FEerror(\"2D linear buffer in 1D texture.\",0);
+            }
             /*check_error(cuTexRefSetFormat(tex,CU_AD_FORMAT_FLOAT,1));*/
-            check_error(cuTexRefSetAddress(NULL,tex,pbuf->device_ptr,pbuf->width));
+            check_error(cuTexRefSetAddress(NULL,tex,dptr,pbuf->width));
             check_error(cuParamSetTexRef(fun,CU_PARAM_TR_DEFAULT,tex));
         }
     }"))
 
-(defun param-set-texture-2d (fhandle thandle value)
+(defun param-set-texture-2d (fhandle thandle value row-skip row-stride)
   (declare (optimize (safety 0) (debug 0)))
   (ffi:c-inline
       (fhandle thandle value
-       'function-pointer 'texture-pointer 'linear-buffer)
-      (:object :object :object :object :object :object)
+       'function-pointer 'texture-pointer 'linear-buffer
+       row-skip row-stride)
+      (:object :object :object :object :object :object :object :object)
       :void
     "{
         if (!FOREIGN_WITH_TAGP(#0,#3)) FEerror(\"Not a function handle\",1,#0);
@@ -721,13 +730,26 @@
             CUfunction fun = #0->foreign.data;
             CUtexref tex = #1->foreign.data;
             LinearBuffer *pbuf = #2->foreign.data;
+            CUdeviceptr dptr = pbuf->device_ptr;
+            int height = pbuf->height, pitch = pbuf->pitch;
             CUDA_ARRAY_DESCRIPTOR desc;
-            if (!pbuf->device_ptr) FEerror(\"Linear buffer not allocated.\",0);
+            if (!dptr) FEerror(\"Linear buffer not allocated.\",0);
+            if (#6 != Cnil) {
+              cl_index ofs = fixnnint(#6);
+              if (ofs >= height) FEerror(\"Texture row index out of bounds: ~A\",1,#6);
+              dptr += pitch*ofs;
+              height -= ofs;
+            }
+            if (#7 != Cnil) {
+              cl_index step = fixnnint(#7);
+              pitch *= step;
+              height = (height + step - 1)/step;
+            }
             desc.Format = CU_AD_FORMAT_FLOAT;
-            desc.Height = pbuf->height;
+            desc.Height = height;
             desc.NumChannels = 1;
             desc.Width = pbuf->width/4;
-            check_error(cuTexRefSetAddress2D(tex,&desc,pbuf->device_ptr,pbuf->pitch));
+            check_error(cuTexRefSetAddress2D(tex,&desc,dptr,pitch));
             check_error(cuParamSetTexRef(fun,CU_PARAM_TR_DEFAULT,tex));
         }
     }"))

@@ -34,6 +34,23 @@
 
 ;;; Misc
 
+(defun canonic-expr-ident (expr)
+  (if (canonic-expr-p expr)
+      (format nil "CI_~A" (canonic-expr-id expr))
+      (apply #'concatenate 'string
+             (cl:map 'list
+                     (lambda (x)
+                       (cond
+                         ((and (characterp x)
+                               (alphanumericp x))
+                          (string x))
+                         ((eql x #\_)
+                          "__")
+                         (t
+                          (format nil "_~A"
+                                  (char-code x)))))
+                     (format nil "~A" expr)))))
+
 (defun canonic-expr-unwrap (expr)
   (if (canonic-expr-p expr)
       (values (canonic-expr-node expr) expr)

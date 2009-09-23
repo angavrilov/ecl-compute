@@ -11,15 +11,28 @@
 (defcontext cuda-texture-transform (cv-mval-set)
   (deflex texture-refs (make-hash-table :test #'equal))
 
+  (defun register-ref-entry (name dim rid &rest tail)
+    (setf (gethash `(:float ,dim ,rid
+                            (multivalue-cuda-buffer ,name)
+                            ,@tail)
+                   texture-refs) t))
+
   (defun register-ref (name dim &optional id)
     (let ((rid (or id
                    (format nil "tex_~A_R~A" name dim))))
-      (setf (gethash `(:float ,dim ,rid
-                              (multivalue-cuda-buffer ,name))
-                     texture-refs) t)
+      (register-ref-entry name dim rid)
       rid))
 
   (def-rewrite-pass expand-rec (:canonic t)
+    ((when (and (@ cv-mval-set name)
+                (eql (min-loop-level row) nil))
+       `(aref (multivalue-data ,name ,@_) ,row ,col))
+      (let* ((row-cexpr (make-canonic row))
+             (id        (format nil "tex_~A_R1_X~A"
+                                name (canonic-expr-ident row-cexpr))))
+        (register-ref-entry name 1 id :row-shift row)
+        `(texture-ref-int ',name ,id ,col)))
+
     ((when (@ cv-mval-set name)
        `(aref (multivalue-data ,name ,@_) ,@idxvals))
       (let* ((idx-cnt    (length idxvals))
