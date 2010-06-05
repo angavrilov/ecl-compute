@@ -28,6 +28,9 @@
 (fast-compute:deflex *time-step* 0.0
   "Base time step of the simulation.")
 
+(fast-compute:deflex *cur-time-bias* 0.0
+  "Bias to account for difference between the model time step and goal step.")
+
 (fast-compute:deflex *default-ps-value* 1.0
   "Default value for the :ps boost parameter.")
 
@@ -101,7 +104,7 @@ The code is automatically replicated to all checkpoints."
       (pprint `(setf *cur-time* ,*cur-time*) restart-file)
       (pprint `(setf *time-step* ,*time-step*) restart-file)
       (pprint `(setf *iter-index* ,*iter-index*) restart-file)
-      (pprint `(execute-tasks ',*task-list*) restart-file))))
+      (pprint `(execute-tasks ',*task-list* :time-bias ,*cur-time-bias*) restart-file))))
 
 (defun restore-state (&optional (path *base-log-path*))
   (restore-arrays (concatenate 'string
@@ -138,7 +141,8 @@ The code is automatically replicated to all checkpoints."
                      &key (max-step min-step) &allow-other-keys)
   (let* ((end-time (+ *cur-time*
                       (min (* min-step *iter-index*)
-                           max-step))))
+                           max-step)
+                      *cur-time-bias*)))
     (format t "~%STAGE ~A~3,'0D: START=~,2F, END=~,2F~%"
             tag *iter-index* *cur-time* end-time)
 
@@ -148,6 +152,7 @@ The code is automatically replicated to all checkpoints."
                       (dump-state tag :tail-tag ".FAIL"))))
       (time (apply #'execute-step end-time params)))
 
+    (setf *cur-time-bias* (- end-time *cur-time*))
     (dump-state tag)))
 
 (defun do-execute-tasks (tasklist)
@@ -169,8 +174,11 @@ The code is automatically replicated to all checkpoints."
     (function (apply funval args))
     (symbol   (apply (symbol-function funval) args))))
 
-(defun execute-tasks (tasklist)
+(defun execute-tasks (tasklist &key (time-bias 0.0))
   "Executes the supplied list of computation tasks."
+  ;; Save the bias value
+  (when time-bias
+    (setf *cur-time-bias* time-bias))
   ;; Call hooks
   (dolist (hook *execute-start-hooks*)
     (multiple-value-bind (rv flag)
