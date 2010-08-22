@@ -1,9 +1,11 @@
 ;;; -*- mode:lisp; indent-tabs-mode: nil; -*-
 
-(asdf:operate 'asdf:load-op 'alexandria)
-(asdf:operate 'asdf:load-op 'cl-match)
-(asdf:operate 'asdf:load-op 'misc-extensions)
-(asdf:operate 'asdf:load-op 'fset)
+(require :asdf)
+
+(asdf:load-system :alexandria)
+(asdf:load-system :cl-match)
+(asdf:load-system :misc-extensions)
+(asdf:load-system :fset)
 
 (cl-match:defpattern si:quasiquote (&rest args)
   (macroexpand-1 (cons 'si:quasiquote args)))
